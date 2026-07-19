@@ -15,6 +15,24 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const STATS_TTL_SECONDS = 300;
 const CONTENT_TTL_SECONDS = 300;
 
+/**
+ * How long any one of these reads may take before we give up on it.
+ *
+ * This bound is not optional, because these functions run during static
+ * generation and Vercel kills a page that takes longer than 60s to render.
+ * `fetch` alone will not save us: Node's implementation has a ~10s *connect*
+ * timeout but no *response* timeout, so a backend that accepts the TCP
+ * connection and is then slow to answer — exactly what a cold container does —
+ * hangs for undici's 300s header timeout. Measured directly: a socket that
+ * accepts and never replies leaves `fetch` pending well past 40s with no error
+ * to catch. That is what failed the /about and /contact builds.
+ *
+ * Six seconds is far longer than a warm response (measured at 0.4–2.6s against
+ * production) and far shorter than the budget, even if several of these run
+ * back to back.
+ */
+const REQUEST_TIMEOUT_MS = 6_000;
+
 async function get<T>(path: string, revalidate: number): Promise<T | null> {
   if (!API_URL) return null;
 
@@ -22,11 +40,21 @@ async function get<T>(path: string, revalidate: number): Promise<T | null> {
     const response = await fetch(`${API_URL}${path}`, {
       next: { revalidate },
       headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) return null;
     return (await response.json()) as T;
-  } catch {
-    // A dead backend must degrade to "we cannot say", never to a stale claim.
+  } catch (error) {
+    /*
+     * A dead backend must degrade to "we cannot say", never to a stale claim.
+     *
+     * It is logged rather than swallowed silently: the failure mode here is an
+     * empty section on a page that still returns 200, which is invisible unless
+     * something says so. A build that quietly dropped its statistics should
+     * leave a trace in the build log.
+     */
+    const reason = error instanceof Error ? error.name : "unknown";
+    console.warn(`[storefront-data] ${path} unavailable (${reason}); rendering empty state`);
     return null;
   }
 }
