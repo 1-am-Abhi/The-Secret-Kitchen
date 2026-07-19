@@ -64,5 +64,7 @@ export const adminNav: { label: string; href: string; icon: string }[] = [
   { label: "Subscribers", href: "/admin/subscribers", icon: "CalendarCheck" },
   { label: "Gallery", href: "/admin/gallery", icon: "Images" },
   { label: "Offers", href: "/admin/offers", icon: "BadgePercent" },
+  { label: "Site Content", href: "/admin/content", icon: "FileText" },
+  { label: "Outlets", href: "/admin/outlets", icon: "Store" },
   { label: "Analytics", href: "/admin/analytics", icon: "TrendingUp" },
 ];

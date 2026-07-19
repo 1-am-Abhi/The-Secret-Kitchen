@@ -134,6 +134,18 @@
   }
 
   html {
+    /*
+     * Entrance animations translate elements in from the side (Reveal's
+     * "right"/"left" variants start at ±32px). On a narrow screen that
+     * momentarily pushes content past the viewport and gives the whole page a
+     * horizontal scrollbar — measured at 390px, the FAQ column overflowed by
+     * 12px mid-animation.
+     *
+     * `clip` rather than `hidden`: hidden turns the element into a scroll
+     * container, which silently breaks `position: sticky` on the navbar and the
+     * menu filter bar. clip suppresses the overflow without that side effect.
+     */
+    overflow-x: clip;
     scroll-behavior: smooth;
     /* Offset anchor jumps so content never hides under the fixed navbar. */
     scroll-padding-top: 6rem;

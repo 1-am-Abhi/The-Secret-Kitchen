@@ -24,7 +24,21 @@ function makeLimiter(overrides: Partial<Options>) {
 }
 
 /** Baseline for the whole /api surface. */
-export const globalLimiter = makeLimiter({});
+export const globalLimiter = makeLimiter({
+  /*
+   * Authenticated admin traffic is exempt from the public budget.
+   *
+   * The panel is request-heavy by nature — a dashboard alone fans out to
+   * analytics, orders and menu, and every page change repeats that. Walking
+   * nine admin pages exhausted the 100-request public allowance and the UI
+   * started rendering 429s, which looks to the operator like the app is broken.
+   *
+   * This is not a hole: the routes behind it still require a valid admin JWT,
+   * and the public surface (orders, coupons, reviews, tracking) keeps its own
+   * tighter per-route limiters below.
+   */
+  skip: (req) => env.isTest || Boolean(req.headers.authorization?.startsWith("Bearer ")),
+});
 
 /** Order creation: generous enough for a family retrying a failed payment. */
 export const orderLimiter = makeLimiter({

@@ -226,12 +226,23 @@ export interface AdminFailure {
   reason: AdminFailureReason;
   message: string;
   status?: number;
+  /**
+   * Per-field messages from the server's own validator, keyed by field path.
+   * Present only when the API rejected a body it could describe precisely —
+   * forms render these inline instead of repeating a generic banner.
+   */
+  fieldErrors?: Record<string, string[]>;
 }
 
 export type AdminResult<T> = ({ ok: true } & T) | AdminFailure;
 
-function fail(reason: AdminFailureReason, message: string, status?: number): AdminFailure {
-  return { ok: false, reason, message, status };
+function fail(
+  reason: AdminFailureReason,
+  message: string,
+  status?: number,
+  fieldErrors?: Record<string, string[]>,
+): AdminFailure {
+  return { ok: false, reason, message, status, fieldErrors };
 }
 
 /* ========================================================================== */
@@ -462,7 +473,7 @@ export function normalizeOrder(raw: unknown): AdminOrder {
 /* ========================================================================== */
 
 interface RequestOptions {
-  method?: "GET" | "PATCH" | "POST" | "DELETE";
+  method?: "GET" | "PATCH" | "POST" | "PUT" | "DELETE";
   body?: unknown;
   signal?: AbortSignal;
   /**
@@ -472,6 +483,42 @@ interface RequestOptions {
    * chooses to include them.
    */
   auth?: "required" | "optional";
+}
+
+/**
+ * Pull per-field messages out of an error body.
+ *
+ * The API reports a rejected body two ways: request-level validation sends
+ * `details: [{ path, message }]`, while the site-content controller re-validates
+ * the block itself and sends a flattened `details: { fieldErrors }`. Both mean
+ * the same thing to a form, so both are read into one map. Anything else yields
+ * `undefined` and the caller falls back to the top-level message.
+ */
+function readFieldErrors(payload: unknown): Record<string, string[]> | undefined {
+  const details = asRecord(payload).details;
+  const collected: Record<string, string[]> = {};
+
+  const add = (field: string, message: string) => {
+    const key = field.length > 0 ? field : "_";
+    collected[key] = [...(collected[key] ?? []), message];
+  };
+
+  if (Array.isArray(details)) {
+    for (const entry of details) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const issue = asRecord(entry);
+      const message = str(issue.message);
+      if (message) add(str(issue.path), message);
+    }
+  } else {
+    const fieldErrors = asRecord(asRecord(details).fieldErrors);
+    for (const [field, messages] of Object.entries(fieldErrors)) {
+      for (const message of strArray(messages)) add(field, message);
+    }
+    for (const message of strArray(asRecord(details).formErrors)) add("_", message);
+  }
+
+  return Object.keys(collected).length > 0 ? collected : undefined;
 }
 
 async function adminRequest(
@@ -520,7 +567,12 @@ async function adminRequest(
 
   if (!response.ok) {
     const message = str(asRecord(payload).message, `Request failed (${response.status})`);
-    return fail(response.status >= 500 ? "server" : "invalid", message, response.status);
+    return fail(
+      response.status >= 500 ? "server" : "invalid",
+      message,
+      response.status,
+      readFieldErrors(payload),
+    );
   }
 
   return { ok: true, payload };
@@ -1708,4 +1760,456 @@ export async function deleteAdminSpecial(id: string): Promise<AdminResult<{ data
   const result = await adminRequest(`/specials/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!result.ok) return result;
   return { ok: true, data: null };
+}
+
+/* ========================================================================== */
+/*  Editable site content                                                     */
+/* ========================================================================== */
+
+/**
+ * The editable block registry, mirroring `CONTENT_BLOCKS` on the server.
+ *
+ * The API refuses any key outside this list, so it is part of the wire contract
+ * and belongs here rather than in a view. `GET /site-content` also advertises
+ * it, and the listing prefers the server's answer over this constant.
+ */
+export const CONTENT_KEYS = [
+  "home.hero",
+  "home.stats",
+  "home.banners",
+  "home.featured",
+  "home.deliveryInfo",
+  "about.story",
+  "about.milestones",
+  "about.team",
+] as const;
+
+export type ContentKey = (typeof CONTENT_KEYS)[number];
+
+export function isContentKey(value: unknown): value is ContentKey {
+  return typeof value === "string" && (CONTENT_KEYS as readonly string[]).includes(value);
+}
+
+/**
+ * One authored block, exactly as stored.
+ *
+ * `value` stays `unknown` on the wire: each key has its own shape and the
+ * content editor narrows it per key through `toContentDraft`, so a block that
+ * predates a field costs one empty input rather than a mistyped object.
+ */
+export interface AdminContentBlock {
+  key: ContentKey;
+  value: unknown;
+  published: boolean;
+  /** ISO 8601. Empty when the API omitted it. */
+  updatedAt: string;
+}
+
+export interface AdminContentSnapshot {
+  /** Only the keys that actually have a row — an unauthored block is absent. */
+  blocks: AdminContentBlock[];
+  /** The full registry the API advertises, including unauthored keys. */
+  keys: ContentKey[];
+}
+
+function normalizeContentBlock(raw: unknown): AdminContentBlock | null {
+  const block = asRecord(raw);
+  const key = str(block.key);
+  // A key this build does not know about is skipped rather than rendered: the
+  // panel has no form for it and would have nothing honest to show.
+  if (!isContentKey(key)) return null;
+
+  return {
+    key,
+    value: block.value,
+    published: block.published !== false,
+    updatedAt: isoDate(block.updatedAt),
+  };
+}
+
+export async function listAdminContent(
+  signal?: AbortSignal,
+): Promise<AdminResult<{ data: AdminContentSnapshot }>> {
+  const result = await adminRequest("/site-content?includeUnpublished=true", { signal });
+  if (!result.ok) return result;
+
+  const payload = asRecord(result.payload);
+  const advertised = strArray(payload.keys).filter(isContentKey);
+
+  return {
+    ok: true,
+    data: {
+      blocks: rows(result.payload)
+        .map(normalizeContentBlock)
+        .filter((block): block is AdminContentBlock => block !== null),
+      // Fall back to this build's registry when the API stops advertising one,
+      // so the editor always offers every block it can actually edit.
+      keys: advertised.length > 0 ? advertised : [...CONTENT_KEYS],
+    },
+  };
+}
+
+export async function saveAdminContent(
+  key: ContentKey,
+  value: unknown,
+  published: boolean,
+): Promise<AdminResult<{ data: AdminContentBlock }>> {
+  const result = await adminRequest(`/site-content/${encodeURIComponent(key)}`, {
+    method: "PUT",
+    body: { value, published },
+  });
+  if (!result.ok) return result;
+
+  const block = normalizeContentBlock(asRecord(result.payload).data);
+  if (!block) return fail("invalid", "The API returned a content block this panel cannot read.");
+  return { ok: true, data: block };
+}
+
+/** Clears the block entirely. The storefront then renders nothing for it. */
+export async function deleteAdminContent(key: ContentKey): Promise<AdminResult<{ data: null }>> {
+  const result = await adminRequest(`/site-content/${encodeURIComponent(key)}`, {
+    method: "DELETE",
+  });
+  if (!result.ok) return result;
+  return { ok: true, data: null };
+}
+
+/* ========================================================================== */
+/*  Customer reviews                                                          */
+/* ========================================================================== */
+
+export interface AdminReview {
+  id: string;
+  name: string;
+  role: string;
+  location: string;
+  rating: number;
+  quote: string;
+  initials: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  verified: boolean;
+  published: boolean;
+  featured: boolean;
+}
+
+function normalizeReview(raw: unknown): AdminReview {
+  const review = asRecord(raw);
+  return {
+    id: str(review.id),
+    name: str(review.name),
+    role: str(review.role),
+    location: str(review.location),
+    rating: num(review.rating),
+    quote: str(review.quote),
+    initials: str(review.initials),
+    date: str(review.date).slice(0, 10),
+    verified: review.verified === true,
+    // Both flags are admin-only projections. A listing that omits them is a
+    // public one, and an unmoderated review is never public — so absent reads
+    // as published rather than as a pending submission.
+    published: review.published !== false,
+    featured: review.featured === true,
+  };
+}
+
+export interface AdminReviewSummary {
+  /** Mean rating across published reviews only. */
+  average: number;
+  count: number;
+}
+
+export async function listAdminReviews(
+  signal?: AbortSignal,
+): Promise<AdminResult<{ data: { reviews: AdminReview[]; summary: AdminReviewSummary } }>> {
+  const result = await adminRequest("/reviews?includeUnpublished=true&limit=100", { signal });
+  if (!result.ok) return result;
+
+  const summary = asRecord(asRecord(result.payload).summary);
+
+  return {
+    ok: true,
+    data: {
+      reviews: rows(result.payload).map(normalizeReview),
+      summary: { average: num(summary.average), count: num(summary.count) },
+    },
+  };
+}
+
+export interface ReviewModerationPatch {
+  published?: boolean;
+  featured?: boolean;
+}
+
+/**
+ * Moderation only.
+ *
+ * There is deliberately no create call here: reviews are written by customers
+ * through the public endpoint, and an admin-side "add a review" form is exactly
+ * the fabrication this project set out to remove.
+ */
+export async function updateAdminReview(
+  id: string,
+  patch: ReviewModerationPatch,
+): Promise<AdminResult<{ data: null }>> {
+  const result = await adminRequest(`/reviews/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: patch,
+  });
+  if (!result.ok) return result;
+  // The PATCH response is the public projection and carries neither flag, so
+  // there is nothing trustworthy to hand back — callers re-read the listing.
+  return { ok: true, data: null };
+}
+
+export async function deleteAdminReview(id: string): Promise<AdminResult<{ data: null }>> {
+  const result = await adminRequest(`/reviews/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!result.ok) return result;
+  return { ok: true, data: null };
+}
+
+/* ========================================================================== */
+/*  Outlets & delivery areas                                                  */
+/* ========================================================================== */
+
+export interface AdminDeliveryArea {
+  id: string;
+  outletId: string;
+  name: string;
+  /** Six digits, never leading zero — the API enforces the same rule. */
+  pincode: string;
+  etaMinutes: number;
+  freeDelivery: boolean;
+  active: boolean;
+  sortOrder: number;
+}
+
+export interface AdminOutlet {
+  id: string;
+  slug: string;
+  name: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone?: string;
+  email?: string;
+  latitude?: number;
+  longitude?: number;
+  deliveryRadiusKm?: number;
+  deliveryMinutes?: number;
+  /** 24h "HH:MM". */
+  opensAt?: string;
+  closesAt?: string;
+  active: boolean;
+  sortOrder: number;
+  deliveryAreas: AdminDeliveryArea[];
+}
+
+function optionalNum(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeDeliveryArea(raw: unknown, fallbackOutletId: string): AdminDeliveryArea {
+  const area = asRecord(raw);
+  return {
+    id: str(area.id),
+    outletId: str(area.outletId, fallbackOutletId),
+    name: str(area.name),
+    pincode: str(area.pincode),
+    etaMinutes: num(area.etaMinutes),
+    freeDelivery: area.freeDelivery === true,
+    active: area.active !== false,
+    sortOrder: num(area.sortOrder),
+  };
+}
+
+function normalizeOutlet(raw: unknown): AdminOutlet {
+  const outlet = asRecord(raw);
+  // The API nests the postal fields under `address`; the panel edits them flat
+  // because that is the shape the create/patch bodies take.
+  const address = asRecord(outlet.address);
+  const id = str(outlet.id);
+
+  return {
+    id,
+    slug: str(outlet.slug),
+    name: str(outlet.name),
+    line1: str(address.line1),
+    line2: optionalStr(address.line2),
+    city: str(address.city),
+    state: str(address.state),
+    postalCode: str(address.postalCode),
+    country: str(address.country, "IN"),
+    phone: optionalStr(outlet.phone),
+    email: optionalStr(outlet.email),
+    latitude: optionalNum(outlet.latitude),
+    longitude: optionalNum(outlet.longitude),
+    deliveryRadiusKm: optionalNum(outlet.deliveryRadiusKm),
+    deliveryMinutes: optionalNum(outlet.deliveryMinutes),
+    opensAt: optionalStr(outlet.opensAt),
+    closesAt: optionalStr(outlet.closesAt),
+    active: outlet.active !== false,
+    sortOrder: num(outlet.sortOrder),
+    deliveryAreas: (Array.isArray(outlet.deliveryAreas) ? outlet.deliveryAreas : []).map((area) =>
+      normalizeDeliveryArea(area, id),
+    ),
+  };
+}
+
+/** Every outlet including the disabled ones — this is the admin's own view. */
+export async function listAdminOutlets(
+  signal?: AbortSignal,
+): Promise<AdminResult<{ data: AdminOutlet[] }>> {
+  const result = await adminRequest("/outlets?includeInactive=true", { signal });
+  if (!result.ok) return result;
+  return { ok: true, data: rows(result.payload).map(normalizeOutlet) };
+}
+
+export interface OutletInput {
+  slug: string;
+  name: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone?: string;
+  email?: string;
+  deliveryRadiusKm?: number;
+  deliveryMinutes?: number;
+  opensAt?: string;
+  closesAt?: string;
+  active: boolean;
+  sortOrder: number;
+}
+
+/**
+ * Drops the fields the operator left blank.
+ *
+ * The API's optional fields reject an empty string, and sending `""` for a
+ * phone number would also be a claim that the outlet has one.
+ */
+function outletBody(input: Partial<OutletInput>): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(input)) {
+    if (value === undefined) continue;
+    if (typeof value === "string" && value.trim().length === 0) continue;
+    body[field] = typeof value === "string" ? value.trim() : value;
+  }
+  return body;
+}
+
+export async function createAdminOutlet(
+  input: OutletInput,
+): Promise<AdminResult<{ data: AdminOutlet }>> {
+  const result = await adminRequest("/outlets", { method: "POST", body: outletBody(input) });
+  if (!result.ok) return result;
+  return { ok: true, data: normalizeOutlet(asRecord(result.payload).data) };
+}
+
+export async function updateAdminOutlet(
+  id: string,
+  patch: Partial<OutletInput>,
+): Promise<AdminResult<{ data: AdminOutlet }>> {
+  const result = await adminRequest(`/outlets/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: outletBody(patch),
+  });
+  if (!result.ok) return result;
+  return { ok: true, data: normalizeOutlet(asRecord(result.payload).data) };
+}
+
+export async function deleteAdminOutlet(id: string): Promise<AdminResult<{ data: null }>> {
+  const result = await adminRequest(`/outlets/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!result.ok) return result;
+  return { ok: true, data: null };
+}
+
+export interface DeliveryAreaInput {
+  name: string;
+  pincode: string;
+  etaMinutes: number;
+  freeDelivery: boolean;
+  active: boolean;
+  sortOrder: number;
+}
+
+export async function createAdminDeliveryArea(
+  outletId: string,
+  input: DeliveryAreaInput,
+): Promise<AdminResult<{ data: AdminDeliveryArea }>> {
+  const result = await adminRequest(`/outlets/${encodeURIComponent(outletId)}/areas`, {
+    method: "POST",
+    body: input,
+  });
+  if (!result.ok) return result;
+  return { ok: true, data: normalizeDeliveryArea(asRecord(result.payload).data, outletId) };
+}
+
+export async function updateAdminDeliveryArea(
+  outletId: string,
+  areaId: string,
+  patch: Partial<DeliveryAreaInput>,
+): Promise<AdminResult<{ data: AdminDeliveryArea }>> {
+  const result = await adminRequest(
+    `/outlets/${encodeURIComponent(outletId)}/areas/${encodeURIComponent(areaId)}`,
+    { method: "PATCH", body: patch },
+  );
+  if (!result.ok) return result;
+  return { ok: true, data: normalizeDeliveryArea(asRecord(result.payload).data, outletId) };
+}
+
+export async function deleteAdminDeliveryArea(
+  outletId: string,
+  areaId: string,
+): Promise<AdminResult<{ data: null }>> {
+  const result = await adminRequest(
+    `/outlets/${encodeURIComponent(outletId)}/areas/${encodeURIComponent(areaId)}`,
+    { method: "DELETE" },
+  );
+  if (!result.ok) return result;
+  return { ok: true, data: null };
+}
+
+export interface CoverageAnswer {
+  covered: boolean;
+  query: string;
+  area?: AdminDeliveryArea;
+  outlet?: { id: string; name: string; city: string };
+}
+
+/**
+ * The same lookup the storefront's "do you deliver here?" box performs, so an
+ * operator can check a PIN code against live data rather than against the table
+ * they just edited.
+ */
+export async function checkAdminCoverage(
+  query: string,
+  signal?: AbortSignal,
+): Promise<AdminResult<{ data: CoverageAnswer }>> {
+  const result = await adminRequest(`/outlets/coverage?q=${encodeURIComponent(query)}`, {
+    signal,
+    auth: "optional",
+  });
+  if (!result.ok) return result;
+
+  const answer = asRecord(asRecord(result.payload).data);
+  const outlet = asRecord(answer.outlet);
+  const covered = answer.covered === true;
+
+  return {
+    ok: true,
+    data: {
+      covered,
+      query: str(answer.query, query),
+      area: covered && answer.area ? normalizeDeliveryArea(answer.area, str(outlet.id)) : undefined,
+      outlet: covered
+        ? { id: str(outlet.id), name: str(outlet.name), city: str(outlet.city) }
+        : undefined,
+    },
+  };
 }

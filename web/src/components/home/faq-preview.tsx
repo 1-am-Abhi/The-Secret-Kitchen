@@ -68,7 +68,7 @@ export function FaqPreview() {
             <Reveal delay={0.15}>
               <Link
                 href="/faq"
-                className="mt-6 inline-flex text-sm font-semibold text-brand-600 underline-offset-4 hover:underline"
+                className="-my-2 mt-6 inline-flex min-h-8 items-center py-2 text-sm font-semibold text-brand-600 underline-offset-4 hover:underline"
               >
                 Read all 22 questions →
               </Link>

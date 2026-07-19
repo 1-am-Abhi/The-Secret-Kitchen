@@ -5,7 +5,7 @@ import { SearchX } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
-  galleryCategories,
+  visibleGalleryCategories,
   getGalleryImages,
   type GalleryCategoryId,
 } from "@/data/gallery";
@@ -37,7 +37,7 @@ export function GalleryExplorer() {
         aria-label="Filter photographs by subject"
         className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1 sm:mx-0 sm:flex-wrap sm:justify-center sm:px-0"
       >
-        {galleryCategories.map((chip) => {
+        {visibleGalleryCategories().map((chip) => {
           const active = chip.id === category;
           return (
             <button

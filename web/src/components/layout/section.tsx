@@ -106,7 +106,9 @@ export function SectionHeading({
           <Link
             href={action.href}
             className={cn(
-              "group inline-flex items-center gap-2 text-sm font-semibold transition-colors",
+              // -my-2 py-2 preserves the visual size while giving the link a
+              // 32px tap target; 20px of text alone is awkward on a phone.
+              "group -my-2 inline-flex min-h-8 items-center gap-2 py-2 text-sm font-semibold transition-colors",
               isDark ? "text-brand-300 hover:text-brand-200" : "text-brand-600 hover:text-brand-700",
             )}
           >

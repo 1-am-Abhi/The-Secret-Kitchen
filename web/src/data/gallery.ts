@@ -1,3 +1,4 @@
+import { getImage } from "@/config/images";
 import type { GalleryImage } from "@/types";
 
 /**
@@ -119,35 +120,6 @@ export const galleryImages: GalleryImage[] = [
     aspect: "square",
   },
 
-  /* ---- Team ------------------------------------------------------------ */
-  {
-    id: "gal-15",
-    imageId: "team-1",
-    caption: "Meenakshi Rawat tasting the dal before dinner dispatch, as she has since 2019",
-    category: "team",
-    aspect: "portrait",
-  },
-  {
-    id: "gal-16",
-    imageId: "team-2",
-    caption: "Suresh Pillai checking the overnight idli batter",
-    category: "team",
-    aspect: "portrait",
-  },
-  {
-    id: "gal-17",
-    imageId: "team-3",
-    caption: "Aarti Deshmukh on the pasta and Indo-Chinese section",
-    category: "team",
-    aspect: "portrait",
-  },
-  {
-    id: "gal-18",
-    imageId: "team-4",
-    caption: "Imran Qureshi running the morning temperature log",
-    category: "team",
-    aspect: "portrait",
-  },
 
   /* ---- Packaging ------------------------------------------------------- */
   {
@@ -206,6 +178,43 @@ export const galleryCategories = [
 ] as const;
 
 export type GalleryCategoryId = (typeof galleryCategories)[number]["id"];
+
+/**
+ * Categories that actually have photographs behind them.
+ *
+ * A chip that filters to an empty grid looks broken; "The Team" in particular
+ * stays hidden until real portraits are uploaded, rather than advertising a
+ * section with nothing in it.
+ */
+export function visibleGalleryCategories(): { id: GalleryCategoryId; label: string }[] {
+  return galleryCategories.filter(
+    (category) => category.id === "all" || countByCategory(category.id) > 0,
+  );
+}
+
+/**
+ * Guards against two entries resolving to the SAME photograph.
+ *
+ * The registry maps several keys onto one file (a hero shot doubles as an offer
+ * banner, which is fine), but two of those keys landing in the same grid reads
+ * as a mistake — it previously put the same portrait on screen twice. Runs in
+ * development only; a duplicate is a content bug to fix, not a reason to break
+ * a production render.
+ */
+if (process.env.NODE_ENV !== "production") {
+  const bySource = new Map<string, string[]>();
+  for (const image of galleryImages) {
+    const source = getImage(image.imageId).src;
+    bySource.set(source, [...(bySource.get(source) ?? []), image.imageId]);
+  }
+  for (const [source, keys] of bySource) {
+    if (keys.length > 1) {
+      console.warn(
+        `[gallery] ${keys.length} entries share one photograph (${keys.join(", ")}) — ${source.slice(0, 80)}`,
+      );
+    }
+  }
+}
 
 /** `all` is a pseudo-category, so it short-circuits rather than filtering. */
 export function getGalleryImages(category: GalleryCategoryId): GalleryImage[] {

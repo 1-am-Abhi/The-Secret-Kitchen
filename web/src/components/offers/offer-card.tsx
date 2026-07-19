@@ -63,7 +63,9 @@ export function OfferCard({ offer }: { offer: Offer }) {
           <OfferCountdown validUntil={offer.validUntil} />
           <Link
             href={isSubscription ? "/tiffin" : "/menu"}
-            className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 transition-colors hover:text-brand-700"
+            /* -my-2 py-2 keeps the visual size while giving the link a 32px
+               tap target, which 16px of text alone does not provide. */
+            className="-my-2 inline-flex min-h-8 items-center gap-1 py-2 text-xs font-semibold text-brand-600 transition-colors hover:text-brand-700"
           >
             {isSubscription ? "View plans" : "Use it now"}
             <ArrowUpRight className="size-3.5" aria-hidden />
