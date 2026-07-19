@@ -25,6 +25,9 @@ import { cn } from "@/lib/utils";
 /** Matches --ease-out-expo in globals.css. */
 const EASE = [0.16, 1, 0.3, 1] as const;
 
+/** Longest a staggered group may take to finish revealing, in seconds. */
+const MAX_STAGGER_TOTAL = 0.6;
+
 export const fadeUp: Variants = {
   hidden: { opacity: 0, y: 24 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: EASE } },
@@ -74,8 +77,15 @@ interface RevealProps extends MotionSafeProps<HTMLDivElement> {
   animation?: RevealAnimation;
   /** Seconds to wait before the animation starts. */
   delay?: number;
-  /** How much of the element must be visible before it triggers (0-1). */
-  amount?: number;
+  /**
+   * How much of the element must be visible before it triggers.
+   *
+   * Defaults to "some" (any part of it). A FRACTION IS A TRAP on tall content:
+   * `amount: 0.25` on an element 5× the viewport height can never be satisfied,
+   * and the content then stays at opacity 0 permanently. Only pass a number
+   * when the element is reliably shorter than the viewport.
+   */
+  amount?: number | "some" | "all";
   as?: "div" | "section" | "article" | "li" | "span";
 }
 
@@ -86,7 +96,7 @@ interface RevealProps extends MotionSafeProps<HTMLDivElement> {
 export function Reveal({
   animation = "fade-up",
   delay = 0,
-  amount = 0.25,
+  amount = "some",
   as = "div",
   className,
   children,
@@ -121,7 +131,8 @@ interface StaggerProps extends MotionSafeProps<HTMLDivElement> {
   /** Gap in seconds between each child's animation. */
   stagger?: number;
   delay?: number;
-  amount?: number;
+  /** See the note on Reveal's `amount` — fractions break on tall grids. */
+  amount?: number | "some" | "all";
   as?: "div" | "ul" | "section";
 }
 
@@ -132,7 +143,7 @@ interface StaggerProps extends MotionSafeProps<HTMLDivElement> {
 export function Stagger({
   stagger = 0.08,
   delay = 0,
-  amount = 0.15,
+  amount = "some",
   as = "div",
   className,
   children,
@@ -143,6 +154,18 @@ export function Stagger({
 
   const MotionTag = motion[as] as typeof motion.div;
 
+  /**
+   * Cap the cascade so a large grid never trickles in.
+   *
+   * `staggerChildren` multiplies by the child count: the 58-dish menu grid at
+   * 0.04s each takes 2.3s before the last card appears, which reads as a slow,
+   * half-empty page. Shrinking the gap keeps the effect on small rows while
+   * bounding the total for big ones.
+   */
+  const childCount = React.Children.count(children);
+  const effectiveStagger =
+    childCount > 1 ? Math.min(stagger, MAX_STAGGER_TOTAL / childCount) : stagger;
+
   return (
     <MotionTag
       ref={ref}
@@ -150,7 +173,7 @@ export function Stagger({
       animate={inView ? "visible" : "hidden"}
       variants={{
         hidden: {},
-        visible: { transition: { staggerChildren: stagger, delayChildren: delay } },
+        visible: { transition: { staggerChildren: effectiveStagger, delayChildren: delay } },
       }}
       className={className}
       data-reveal=""
@@ -230,6 +253,7 @@ export function CountUp({
   className?: string;
 }) {
   const ref = React.useRef<HTMLSpanElement>(null);
+  // A number is safe here: the element is a single line of text.
   const inView = useInView(ref, { once: true, amount: 0.5 });
   const shouldReduceMotion = useReducedMotion();
   const motionValue = useMotionValue(0);

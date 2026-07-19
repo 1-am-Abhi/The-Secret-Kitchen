@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, Phone, Search, ShoppingBag } from "lucide-react";
+import { LayoutDashboard, Menu, Phone, Search, ShoppingBag } from "lucide-react";
 
 import { Logo } from "@/components/brand/logo";
 import { motion, useReducedMotion } from "@/components/motion";
@@ -115,6 +115,26 @@ export function Navbar() {
 
             <CartButton />
 
+            {/*
+              Admin entry point. Always a plain link to /admin — the guard there
+              decides what happens: an unauthenticated visitor is redirected to
+              /admin/login, a signed-in one lands on the dashboard. Deciding it
+              here would mean reading auth state in the public header, which
+              would make every page client-dependent for no benefit.
+            */}
+            <Button
+              asChild
+              variant="ghost"
+              size="icon-sm"
+              className="hidden sm:inline-flex"
+              aria-label="Admin portal"
+              title="Admin portal"
+            >
+              <Link href="/admin">
+                <LayoutDashboard />
+              </Link>
+            </Button>
+
             <Button asChild size="sm" className="hidden md:inline-flex">
               <Link href="/menu">Order Now</Link>
             </Button>
@@ -176,6 +196,12 @@ export function Navbar() {
                 </div>
 
                 <div className="grid gap-2 border-t border-ink-100 p-6">
+                  <Button asChild variant="ghost" size="sm" className="justify-start">
+                    <Link href="/admin">
+                      <LayoutDashboard />
+                      Admin portal
+                    </Link>
+                  </Button>
                   <Button asChild size="lg">
                     <Link href="/menu">Order Now</Link>
                   </Button>
