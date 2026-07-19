@@ -15,19 +15,64 @@ import { apiRouter } from "./routes";
  * tests or a serverless adapter without binding a port.
  */
 
+/**
+ * Does `origin` match one allow-list entry?
+ *
+ * Entries are exact origins ("https://example.com") except for a leading `*.`
+ * wildcard in the host ("https://*.vercel.app"), which matches any single-level
+ * subdomain. That wildcard exists for Vercel preview deployments, whose
+ * hostname changes on every push and so cannot be enumerated ahead of time.
+ *
+ * The scheme is always compared exactly, and `*.` never matches a bare apex or
+ * a dot inside the label, so "https://*.vercel.app" allows
+ * "https://tsk-git-main-abhi.vercel.app" but not "https://vercel.app.evil.com".
+ */
+function originMatches(entry: string, origin: string): boolean {
+  if (entry === origin) return true;
+  if (!entry.includes("*")) return false;
+
+  const [scheme, host] = entry.split("://");
+  if (!scheme || !host?.startsWith("*.")) return false;
+
+  const suffix = host.slice(1); // ".vercel.app"
+  const candidate = origin.startsWith(`${scheme}://`) ? origin.slice(scheme.length + 3) : null;
+  if (!candidate?.endsWith(suffix)) return false;
+
+  // Exactly one label may stand in for the wildcard.
+  const label = candidate.slice(0, -suffix.length);
+  return label.length > 0 && !label.includes(".");
+}
+
+export function isOriginAllowed(origin: string): boolean {
+  return env.corsOrigins.some(
+    (entry) => entry === "*" || originMatches(entry, origin),
+  );
+}
+
 const corsOptions: CorsOptions = {
   origin(origin, callback) {
     // Same-origin, curl and server-to-server requests send no Origin header.
     if (!origin) return callback(null, true);
-    if (env.corsOrigins.includes("*") || env.corsOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    return callback(new Error(`Origin ${origin} is not allowed by CORS.`));
+
+    /*
+     * A disallowed origin is answered WITHOUT the allow-origin header, which is
+     * what actually blocks the browser. It is not an error.
+     *
+     * This used to `callback(new Error(...))`, which threw into the error
+     * handler and produced a 500 — including on preflight. That was misleading
+     * in two directions: the logs filled with 500s that were really just an
+     * origin typo, and the browser reported the generic "No
+     * 'Access-Control-Allow-Origin' header" for what was a server crash. The
+     * security outcome is identical either way; only the diagnosis changes.
+     */
+    return callback(null, isOriginAllowed(origin));
   },
   credentials: true,
   methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   maxAge: 86_400,
+  // 204 with no body. Some older XHR stacks choke on 200-with-body preflights.
+  optionsSuccessStatus: 204,
 };
 
 export function createApp(): Express {

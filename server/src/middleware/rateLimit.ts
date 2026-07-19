@@ -10,6 +10,19 @@ import { env } from "../config/env";
  * Responses reuse the standard error envelope so clients parse one shape.
  */
 
+/**
+ * Never count a CORS preflight against any budget.
+ *
+ * A preflight is the browser asking permission, not the client doing work, and
+ * it is not attributable to the user in any meaningful way. Counting it also
+ * breaks the tightest limiters first: `authLimiter` allows 8 requests per 15
+ * minutes, so eight preflights alone could exhaust the sign-in budget and the
+ * next OPTIONS would get a 429 — a response that carries no allow-origin
+ * header, which the browser then reports as a CORS failure rather than as
+ * throttling. That is a miserable thing to debug.
+ */
+const isPreflight = (req: { method: string }) => req.method === "OPTIONS";
+
 function makeLimiter(overrides: Partial<Options>) {
   return rateLimit({
     windowMs: env.RATE_LIMIT_WINDOW_MS,
@@ -17,7 +30,7 @@ function makeLimiter(overrides: Partial<Options>) {
     standardHeaders: true,
     legacyHeaders: false,
     // Tests and local development would otherwise trip limits during seeding.
-    skip: () => env.isTest,
+    skip: (req) => env.isTest || isPreflight(req),
     message: { message: "Too many requests. Please slow down.", code: "RATE_LIMITED" },
     ...overrides,
   });
@@ -37,7 +50,8 @@ export const globalLimiter = makeLimiter({
    * and the public surface (orders, coupons, reviews, tracking) keeps its own
    * tighter per-route limiters below.
    */
-  skip: (req) => env.isTest || Boolean(req.headers.authorization?.startsWith("Bearer ")),
+  skip: (req) =>
+    env.isTest || isPreflight(req) || Boolean(req.headers.authorization?.startsWith("Bearer ")),
 });
 
 /** Order creation: generous enough for a family retrying a failed payment. */
