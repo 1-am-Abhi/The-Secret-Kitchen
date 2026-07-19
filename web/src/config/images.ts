@@ -426,6 +426,36 @@ export const imageRegistry: Record<string, ImageAsset> = {
     "Masala chai served in earthen kulhads with a snack plate",
     "portrait",
   ),
+  "paratha-4": stock(
+    "photo-1722239312666-84328fce4c6f",
+    "Stack of plain chapatis on a terracotta plate, shot from above",
+    "landscape",
+  ),
+  "paratha-5": stock(
+    "photo-1754394483922-4d3a10cc6187",
+    "Golden ghee-glistening rotis being lifted off a hot tawa",
+    "landscape",
+  ),
+  "paratha-6": stock(
+    "photo-1680359873724-8062c6806704",
+    "Stuffed paratha served with pickled onions, lemon and a spoon of ghee",
+    "landscape",
+  ),
+  "north-indian-5": stock(
+    "photo-1680359869925-1efb91d82159",
+    "Dark creamy dal makhani in a white bowl finished with a swirl of cream",
+    "landscape",
+  ),
+  "north-indian-8": stock(
+    "photo-1642821369314-100fece91d3c",
+    "Kadai paneer with paneer cubes, peppers and ginger juliennes in a black kadai",
+    "landscape",
+  ),
+  "north-indian-9": stock(
+    "photo-1755090154755-006e02ea26b9",
+    "Mix veg curry with cauliflower, carrot and beans in a steel kadai",
+    "landscape",
+  ),
 
   /* ---- Offers --------------------------------------------------------- */
   "offer-1": stock(
