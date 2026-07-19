@@ -350,6 +350,83 @@ export const imageRegistry: Record<string, ImageAsset> = {
     "portrait",
   ),
 
+  /* ---- Additional dish photography ------------------------------------ */
+  /*
+   * Sourced so that no two dishes share a photograph. Each was viewed before
+   * being added and confirmed vegetarian, unwatermarked and depicting the dish
+   * it is named for.
+   */
+  "maggi-4": stock(
+    "photo-1633352615955-f0c99e8b7e5a",
+    "Glossy buttered instant noodles lifted on a fork from a dark bowl",
+    "landscape",
+  ),
+  "maggi-5": stock(
+    "photo-1585410304004-56ae05651552",
+    "Instant noodles loaded with diced carrot, peas and capsicum",
+    "landscape",
+  ),
+  "maggi-6": stock(
+    "photo-1630637618238-689daed16f21",
+    "Cheesy noodles lifted on a fork with strands of melted cheese stretching",
+    "portrait",
+  ),
+  "maggi-7": stock(
+    "photo-1635685296916-95acaf58471f",
+    "Steaming spicy red instant noodles lifted with chopsticks",
+    "portrait",
+  ),
+  "pasta-4": stock(
+    "photo-1663159857524-efe7a5404f03",
+    "Pasta tossed in olive oil with cherry tomatoes, basil and grated cheese",
+    "portrait",
+  ),
+  "pasta-5": stock(
+    "photo-1603662953679-1a32f2155b34",
+    "Baked cheesy pasta with a melted cheese pull and vegetables",
+    "portrait",
+  ),
+  "pasta-6": stock(
+    "photo-1573821201069-dbf297ca410a",
+    "Creamy white sauce penne with basil, served with garlic bread",
+    "portrait",
+  ),
+  "north-indian-7": stock(
+    "photo-1589647363585-f4a7d3877b10",
+    "Palak paneer — creamy green spinach curry with soft paneer cubes",
+    "landscape",
+  ),
+  "rice-4": stock(
+    "photo-1709786204911-03e5857ffd9a",
+    "Vegetable fried rice tossed with carrot, spring onion and capsicum",
+    "portrait",
+  ),
+  "sandwich-3": stock(
+    "photo-1716535233357-822bcc293573",
+    "Grilled tandoori paneer sandwich cut into triangles with green chutney",
+    "landscape",
+  ),
+  "snacks-6": stock(
+    "photo-1680991172715-4074203a40d3",
+    "Dry chilli paneer tossed with green capsicum and red chillies",
+    "portrait",
+  ),
+  "snacks-7": stock(
+    "photo-1584378868074-1ebfd5a636c7",
+    "Loaded cheese fries smothered in melted cheese sauce with herbs",
+    "landscape",
+  ),
+  "snacks-8": stock(
+    "photo-1683367422109-93d2856f58c4",
+    "Steamed vegetable momos plated close-up with a creamy dip",
+    "landscape",
+  ),
+  "beverage-7": stock(
+    "photo-1630748662359-40a2105640c7",
+    "Masala chai served in earthen kulhads with a snack plate",
+    "portrait",
+  ),
+
   /* ---- Offers --------------------------------------------------------- */
   "offer-1": stock(
     "photo-1631452180519-c014fe946bc7",
