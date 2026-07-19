@@ -119,6 +119,56 @@ const NOT_CONFIGURED =
   "This deployment has no admin API configured, so sign-in is unavailable.";
 
 /**
+ * How long to wait for the auth API before giving up.
+ *
+ * `fetch` in a browser has NO default timeout. A backend that accepts the TCP
+ * connection and is then slow to answer — a container waking from idle, which
+ * is exactly what Railway does after a quiet period — leaves the request
+ * pending indefinitely, so the button sits on "Signing in…" with nothing to
+ * report either way.
+ *
+ * 20s is deliberately generous: a cold start is worth waiting through, and the
+ * alternative is telling someone their credentials failed when the server was
+ * merely asleep. A warm sign-in returns in well under a second.
+ */
+const AUTH_TIMEOUT_MS = 20_000;
+
+/**
+ * The caller's own cancellation combined with our timeout.
+ *
+ * `AbortSignal.any` is recent enough that it is worth degrading gracefully:
+ * where it is missing we keep the caller's signal and simply go without the
+ * timeout, which is no worse than the behaviour this replaces.
+ */
+function withTimeout(signal: AbortSignal | undefined): AbortSignal | undefined {
+  if (typeof AbortSignal.timeout !== "function") return signal;
+  const timeout = AbortSignal.timeout(AUTH_TIMEOUT_MS);
+  if (!signal) return timeout;
+  if (typeof AbortSignal.any !== "function") return signal;
+  return AbortSignal.any([signal, timeout]);
+}
+
+/**
+ * Turn a thrown `fetch` into something a person can act on.
+ *
+ * Every failure mode below arrives here as the same opaque TypeError — a CORS
+ * rejection, a DNS failure, an https page blocked from calling an http API, a
+ * backend that never answered. The browser deliberately withholds which, so
+ * this cannot diagnose; what it can do is stop claiming "check your
+ * connection", which sends people to inspect the one thing that is usually
+ * fine, and name the timeout case where we do know.
+ */
+function describeFetchFailure(error: unknown, callerAborted: boolean, what: string): string {
+  if (error instanceof DOMException && error.name === "TimeoutError") {
+    return `The server did not respond within ${AUTH_TIMEOUT_MS / 1000} seconds. It may be waking up — please try again.`;
+  }
+  if (error instanceof DOMException && error.name === "AbortError" && !callerAborted) {
+    return `The server did not respond within ${AUTH_TIMEOUT_MS / 1000} seconds. It may be waking up — please try again.`;
+  }
+  return `Could not reach ${what}. This is usually the server being unreachable or refusing this site's origin — check the browser console for the exact network error.`;
+}
+
+/**
  * Exchange credentials for a bearer token.
  *
  * Does NOT store the token — the caller decides that, so a component can log
@@ -135,16 +185,15 @@ export async function loginAdmin(
   try {
     response = await fetch(`${API_URL}/auth/login`, {
       method: "POST",
-      signal,
+      signal: withTimeout(signal),
       cache: "no-store",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ email, password }),
     });
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      return fail("invalid", "Sign-in was cancelled.");
-    }
-    return fail("network", "Could not reach the server. Check your connection and try again.");
+    // Only the caller's own signal means "cancelled"; our timeout aborts too.
+    if (signal?.aborted) return fail("invalid", "Sign-in was cancelled.");
+    return fail("network", describeFetchFailure(error, false, "the server"));
   }
 
   const payload: unknown = await response.json().catch(() => null);
@@ -198,15 +247,13 @@ export async function fetchCurrentAdmin(
   let response: Response;
   try {
     response = await fetch(`${API_URL}/auth/me`, {
-      signal,
+      signal: withTimeout(signal),
       cache: "no-store",
       headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
     });
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      return fail("invalid", "Request cancelled.");
-    }
-    return fail("network", "Could not reach the admin API.");
+    if (signal?.aborted) return fail("invalid", "Request cancelled.");
+    return fail("network", describeFetchFailure(error, false, "the admin API"));
   }
 
   if (response.status === 401 || response.status === 403) {
