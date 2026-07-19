@@ -79,8 +79,27 @@ export const planByTier = new Map(tiffinPlans.map((plan) => [plan.tier, plan]));
 /** Discount applied when a customer commits to a full month instead of a week. */
 export const CYCLE_DISCOUNT_LABEL: Record<Exclude<BillingCycle, "custom">, string> = {
   weekly: "Try it out",
-  monthly: "Save up to 12%",
+  monthly: `Save up to ${maxMonthlyDiscountPercent()}%`,
 };
+
+/**
+ * The real monthly saving for one plan, as a whole percentage off the weekly
+ * per-meal rate.
+ *
+ * Computed rather than written down: the badge previously claimed a flat 12%
+ * while the actual figures were 10-11%, which is precisely the sort of number
+ * that drifts the moment someone edits a price.
+ */
+export function monthlyDiscountPercent(plan: TiffinPlan): number {
+  const { weekly, monthly } = plan.pricePerMeal;
+  if (weekly <= 0) return 0;
+  return Math.round((1 - monthly / weekly) * 100);
+}
+
+/** Best monthly saving across all plans — what "save up to X%" may claim. */
+export function maxMonthlyDiscountPercent(): number {
+  return Math.max(...tiffinPlans.map(monthlyDiscountPercent));
+}
 
 /**
  * Total for one billing period. Monthly plans bill 26 meals (Mon-Sat over four

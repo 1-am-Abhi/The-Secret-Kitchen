@@ -166,3 +166,38 @@ export const adminLoginSchema = z.object({
 });
 
 export type AdminLoginValues = z.infer<typeof adminLoginSchema>;
+
+/* ==========================================================================
+   Tiffin subscription
+   ========================================================================== */
+
+/**
+ * Subscription sign-up.
+ *
+ * Mirrors the order checkout: the API requires a customer and a delivery
+ * address, so the form collects exactly those and nothing else. The plan,
+ * billing cycle and meal slot are chosen on the page itself and travel
+ * alongside — they are not free-text fields anyone can mistype.
+ */
+export const subscriptionCheckoutSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, "Please enter your full name")
+    .max(60, "That name looks a little too long"),
+  phone: indianPhone,
+  addressLine1: z
+    .string()
+    .trim()
+    .min(8, "Please give the full address — flat, building and street")
+    .max(200, "Please keep the address under 200 characters"),
+  landmark: z.string().trim().max(80, "Please keep the landmark under 80 characters").optional(),
+  pincode: indianPincode,
+  preferences: z
+    .string()
+    .trim()
+    .max(500, "Please keep preferences under 500 characters")
+    .optional(),
+});
+
+export type SubscriptionCheckoutValues = z.infer<typeof subscriptionCheckoutSchema>;

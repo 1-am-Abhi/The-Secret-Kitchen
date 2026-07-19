@@ -15,6 +15,7 @@ import { mapPlan } from "../../utils/mappers";
 import { generateSubscriptionCode, withUniqueReference } from "../../utils/orderNumber";
 import { paginated, toSkipTake } from "../../utils/pagination";
 import { calculatePlanPeriod, evaluateCoupon } from "../../utils/pricing";
+import { buildSubscriptionHandoff } from "./subscription-whatsapp";
 import type {
   CreatePlanInput,
   CreateSubscriptionInput,
@@ -101,6 +102,12 @@ export const updatePlan = asyncHandler(async (req: Request, res: Response) => {
 /* Subscriptions — public                                                     */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Payment methods that are settled outside this request, so nothing may be
+ * recorded as paid at creation time.
+ */
+const AWAITS_CONFIRMATION: readonly string[] = ["WHATSAPP", "COD"];
+
 export const createSubscription = asyncHandler(async (req: Request, res: Response) => {
   const body = req.body as CreateSubscriptionInput;
 
@@ -170,9 +177,11 @@ export const createSubscription = asyncHandler(async (req: Request, res: Respons
           addressLabel: body.address.label,
           cycle: body.cycle,
           slot: body.slot,
-          // ACTIVE only once payment is confirmed; UPI mandates and cards are
-          // assumed captured upstream, COD-style "pay on first delivery" is not.
-          status: body.paymentMethod === "COD" ? "PENDING" : "ACTIVE",
+          // A subscription only becomes ACTIVE once money or a human confirms
+          // it. WhatsApp sign-ups are settled in the chat and cash on delivery
+          // at the door, so both start PENDING — marking them active here would
+          // put unconfirmed meals into the kitchen's daily prep count.
+          status: AWAITS_CONFIRMATION.includes(body.paymentMethod) ? "PENDING" : "ACTIVE",
           startDate,
           nextDeliveryDate: firstDelivery,
           endDate: projectEndDate(firstDelivery, period.meals, body.slot),
@@ -183,7 +192,7 @@ export const createSubscription = asyncHandler(async (req: Request, res: Respons
           discount,
           couponCode: coupon?.ok ? coupon.offer?.code ?? null : null,
           paymentMethod: body.paymentMethod,
-          paymentStatus: body.paymentMethod === "COD" ? "PENDING" : "PAID",
+          paymentStatus: AWAITS_CONFIRMATION.includes(body.paymentMethod) ? "PENDING" : "PAID",
           preferences: body.preferences ?? null,
         },
         include: SUBSCRIPTION_INCLUDE,
@@ -191,7 +200,32 @@ export const createSubscription = asyncHandler(async (req: Request, res: Respons
     );
   });
 
-  res.status(201).json({ data: mapSubscription(subscription), message: "Subscription created." });
+  // Built only after the row is committed — same guarantee as the order flow:
+  // a handoff must never reference a subscription that does not exist.
+  const handoff = buildSubscriptionHandoff({
+    code: subscription.code,
+    planName: subscription.plan.name,
+    cycle: subscription.cycle,
+    slot: subscription.slot,
+    customerName: body.customer.name,
+    customerPhone: body.customer.phone,
+    mealsTotal: subscription.mealsTotal,
+    pricePerMeal: subscription.pricePerMeal,
+    amount: subscription.amount,
+    discount: subscription.discount,
+    couponCode: subscription.couponCode,
+    startDate: formatDateOnly(subscription.startDate),
+    addressLabel: subscription.addressLabel,
+    addressLine: [body.address.line1, body.address.line2, body.address.city, body.address.pincode]
+      .filter(Boolean)
+      .join(", "),
+    preferences: subscription.preferences,
+  });
+
+  res.status(201).json({
+    data: { ...mapSubscription(subscription), handoff },
+    message: "Subscription created.",
+  });
 });
 
 /** Loads a subscription and enforces the guest phone check unless admin. */

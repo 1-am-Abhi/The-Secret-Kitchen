@@ -2,21 +2,23 @@
 
 import * as React from "react";
 import { Check, Sparkles, X } from "lucide-react";
-import { toast } from "sonner";
 
 import { Stagger, StaggerItem } from "@/components/motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FoodImage } from "@/components/ui/food-image";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SubscribeDialog } from "@/components/tiffin/subscribe-dialog";
 import {
   calculatePlanTotal,
+  maxMonthlyDiscountPercent,
+  monthlyDiscountPercent,
   monthlySavings,
   tiffinPlans,
 } from "@/data/tiffin";
-import { createSubscription } from "@/lib/api";
+import { mealsPerDay, SLOT_LABEL } from "@/lib/subscriptions";
 import { cn, formatPrice } from "@/lib/utils";
-import type { BillingCycle, MealSlot } from "@/types";
+import type { BillingCycle, MealSlot, TiffinPlan } from "@/types";
 
 type Cycle = Exclude<BillingCycle, "custom">;
 
@@ -30,23 +32,10 @@ type Cycle = Exclude<BillingCycle, "custom">;
 export function PlanSelector() {
   const [cycle, setCycle] = React.useState<Cycle>("monthly");
   const [slot, setSlot] = React.useState<MealSlot>("lunch");
-  const [submitting, setSubmitting] = React.useState<string | null>(null);
+  /** The plan whose sign-up dialog is open, if any. */
+  const [subscribing, setSubscribing] = React.useState<TiffinPlan | null>(null);
 
   const bothSlots = slot === "both";
-
-  const handleSubscribe = async (tier: string, total: number) => {
-    setSubmitting(tier);
-    try {
-      await createSubscription({ tier, cycle, slot });
-      toast.success("Almost there!", {
-        description: `We'll WhatsApp you to confirm your ${tier} plan (${formatPrice(total)}) and set the delivery slot.`,
-      });
-    } catch {
-      toast.error("Could not start that subscription. Please call the kitchen.");
-    } finally {
-      setSubmitting(null);
-    }
-  };
 
   return (
     <div>
@@ -62,7 +51,7 @@ export function PlanSelector() {
               <TabsTrigger value="monthly">
                 Monthly
                 <Badge variant="success" size="sm" className="ml-1">
-                  Save 12%
+                  Save up to {maxMonthlyDiscountPercent()}%
                 </Badge>
               </TabsTrigger>
             </TabsList>
@@ -143,9 +132,14 @@ export function PlanSelector() {
                         · billed {cycle === "monthly" ? "monthly" : "weekly"}
                       </span>
                     </p>
+                    <p className="mt-1 text-xs text-ink-500">
+                      {SLOT_LABEL[slot]} · {mealsPerDay(slot)}{" "}
+                      {mealsPerDay(slot) === 1 ? "meal" : "meals"} a day
+                    </p>
                     {savings > 0 && (
                       <p className="mt-1.5 text-xs font-semibold text-fresh-600">
-                        You save {formatPrice(savings)} vs weekly billing
+                        You save {formatPrice(savings)} ({monthlyDiscountPercent(plan)}%) vs
+                        weekly billing
                       </p>
                     )}
                   </div>
@@ -169,17 +163,10 @@ export function PlanSelector() {
                     size="lg"
                     variant={plan.highlight ? "primary" : "outline"}
                     className="mt-7 w-full"
-                    disabled={submitting !== null}
-                    onClick={() => handleSubscribe(plan.name, total)}
+                    onClick={() => setSubscribing(plan)}
                   >
-                    {submitting === plan.name ? (
-                      "Setting up…"
-                    ) : (
-                      <>
-                        <Sparkles />
-                        Subscribe · {formatPrice(total)}
-                      </>
-                    )}
+                    <Sparkles />
+                    Subscribe · {formatPrice(total)}
                   </Button>
 
                   <p className="mt-3 text-center text-xs text-ink-400">
@@ -191,6 +178,21 @@ export function PlanSelector() {
           );
         })}
       </Stagger>
+
+      {/* One dialog instance, re-keyed per plan so its form state resets. */}
+      {subscribing && (
+        <SubscribeDialog
+          key={`${subscribing.tier}-${cycle}-${slot}`}
+          plan={subscribing}
+          cycle={cycle}
+          slot={slot}
+          {...calculatePlanTotal(subscribing, cycle, bothSlots)}
+          open
+          onOpenChange={(next) => {
+            if (!next) setSubscribing(null);
+          }}
+        />
+      )}
     </div>
   );
 }

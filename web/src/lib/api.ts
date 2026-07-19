@@ -77,13 +77,6 @@ export function placeOrder(payload: unknown) {
   });
 }
 
-export function createSubscription(payload: unknown) {
-  return request<{ ok: boolean; subscriptionId: string }>("/subscriptions", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
 export function submitReview(payload: {
   name: string;
   role?: string;

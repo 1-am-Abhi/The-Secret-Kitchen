@@ -39,7 +39,11 @@ export const createSubscriptionSchema = z.object({
   customMeals: z.number().int().min(1).max(120).optional(),
   startDate: z.coerce.date().optional(),
   couponCode: z.string().trim().max(40).optional(),
-  paymentMethod: paymentMethodSchema.default("UPI"),
+  /**
+   * Defaults to WHATSAPP because that is the live sign-up channel. It decides
+   * whether the subscription starts PENDING (settled out of band) or ACTIVE.
+   */
+  paymentMethod: paymentMethodSchema.default("WHATSAPP"),
   preferences: z.string().trim().max(500).optional(),
 });
 
