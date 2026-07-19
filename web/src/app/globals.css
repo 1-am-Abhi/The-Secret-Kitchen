@@ -1,0 +1,222 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* ==========================================================================
+   THE SECRET KITCHEN — Design System
+   Premium, minimal, warm. Orange primary on a near-white canvas with ink-slate
+   text. Every design decision flows from the tokens below, so editing this one
+   block re-skins the entire product.
+   ========================================================================== */
+
+@theme {
+  /* ---- Brand palette ---------------------------------------------------- */
+  --color-brand-50: #fff5eb;
+  --color-brand-100: #ffe8d1;
+  --color-brand-200: #ffcfa3;
+  --color-brand-300: #ffb070;
+  --color-brand-400: #ff8f3d;
+  --color-brand-500: #ff6b00; /* Primary */
+  --color-brand-600: #e65a00;
+  --color-brand-700: #b84700;
+  --color-brand-800: #8a3600;
+  --color-brand-900: #5c2400;
+
+  --color-ink-50: #f8f9fa;
+  --color-ink-100: #f1f3f5;
+  --color-ink-200: #e5e7eb;
+  --color-ink-300: #d1d5db;
+  --color-ink-400: #9ca3af;
+  --color-ink-500: #6b7280;
+  --color-ink-600: #4b5563;
+  --color-ink-700: #374151;
+  --color-ink-800: #1f2937; /* Secondary */
+  --color-ink-900: #111827;
+
+  --color-fresh-50: #f0fdf4;
+  --color-fresh-100: #dcfce7;
+  --color-fresh-200: #bbf7d0;
+  --color-fresh-300: #86efac;
+  --color-fresh-400: #4ade80;
+  --color-fresh-500: #22c55e; /* Accent */
+  --color-fresh-600: #16a34a;
+  --color-fresh-700: #15803d;
+
+  --color-cream: #fffaf5;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8f9fa;
+
+  /* ---- Semantic aliases (shadcn-compatible) ----------------------------- */
+  --color-background: var(--color-surface);
+  --color-foreground: var(--color-ink-900);
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-ink-900);
+  --color-popover: var(--color-surface);
+  --color-popover-foreground: var(--color-ink-900);
+  --color-primary: var(--color-brand-500);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--color-ink-800);
+  --color-secondary-foreground: #ffffff;
+  --color-accent: var(--color-fresh-500);
+  --color-accent-foreground: #ffffff;
+  --color-muted: var(--color-surface-muted);
+  --color-muted-foreground: var(--color-ink-500);
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--color-ink-200);
+  --color-input: var(--color-ink-200);
+  --color-ring: var(--color-brand-500);
+
+  /* ---- Typography ------------------------------------------------------- */
+  --font-display: var(--font-playfair), ui-serif, Georgia, serif;
+  --font-sans: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
+
+  /* ---- Radii ------------------------------------------------------------ */
+  --radius-xs: 0.5rem;
+  --radius-sm: 0.75rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.75rem;
+  --radius-2xl: 2.25rem;
+  --radius-3xl: 3rem;
+
+  /* ---- Elevation: soft, wide, low-opacity shadows (Apple-like) ---------- */
+  --shadow-soft: 0 1px 2px rgb(31 41 55 / 0.04), 0 8px 24px -8px rgb(31 41 55 / 0.08);
+  --shadow-lift: 0 2px 4px rgb(31 41 55 / 0.04), 0 18px 40px -12px rgb(31 41 55 / 0.14);
+  --shadow-float: 0 4px 8px rgb(31 41 55 / 0.05), 0 32px 64px -16px rgb(31 41 55 / 0.2);
+  --shadow-glow: 0 12px 40px -8px rgb(255 107 0 / 0.42);
+
+  /* ---- Motion ----------------------------------------------------------- */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ---- Named animations -------------------------------------------------- */
+  --animate-marquee: marquee 40s linear infinite;
+  --animate-float-slow: float-slow 7s ease-in-out infinite;
+  --animate-shimmer: shimmer 2.4s linear infinite;
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-14px) rotate(1.5deg); }
+}
+
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    /* Offset anchor jumps so content never hides under the fixed navbar. */
+    scroll-padding-top: 6rem;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* On-brand focus ring, keyboard users only. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background-color: var(--color-brand-500);
+    color: #fff;
+  }
+}
+
+/* Respect the OS reduce-motion setting: neutralise every animation and
+   transition globally rather than tuning each component individually. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+
+@utility container-page {
+  width: 100%;
+  margin-inline: auto;
+  max-width: 88rem;
+  padding-inline: 1.25rem;
+}
+
+@utility glass {
+  background-color: rgb(255 255 255 / 0.72);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgb(255 255 255 / 0.6);
+}
+
+@utility glass-dark {
+  background-color: rgb(31 41 55 / 0.68);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgb(255 255 255 / 0.1);
+}
+
+@utility text-gradient-brand {
+  background-image: linear-gradient(100deg, var(--color-brand-500), var(--color-brand-300) 60%, var(--color-brand-500));
+  background-clip: text;
+  color: transparent;
+}
+
+/* Loading skeleton sheen. */
+@utility shimmer {
+  background-image: linear-gradient(90deg, var(--color-ink-100) 25%, var(--color-ink-50) 50%, var(--color-ink-100) 75%);
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+/* Hides scrollbars on horizontal rails while keeping them scrollable. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+@media (width >= 40rem) {
+  .container-page { padding-inline: 2rem; }
+}
+
+@media (width >= 64rem) {
+  .container-page { padding-inline: 3rem; }
+}
