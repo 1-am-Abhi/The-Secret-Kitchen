@@ -19,7 +19,7 @@ export default function CheckoutPage() {
           <div>
             <h1 className="text-4xl leading-tight text-ink-900 sm:text-5xl">Checkout</h1>
             <p className="mt-3 text-ink-500">
-              Three quick steps and your food goes straight to the pass.
+              A few details, then one tap on WhatsApp and your food goes to the pass.
             </p>
           </div>
           <p className="flex items-center gap-2 text-sm text-fresh-700">

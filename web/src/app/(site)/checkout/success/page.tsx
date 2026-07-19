@@ -1,25 +1,26 @@
-import { Suspense } from "react";
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import { OrderConfirmation } from "@/components/checkout/order-confirmation";
-import { buildMetadata } from "@/lib/seo";
+/**
+ * Legacy confirmation route.
+ *
+ * `/checkout/success` was the old post-order page. Orders placed before the
+ * rename may still be linked from a browser history entry, a bookmark or a
+ * WhatsApp thread, so it permanently forwards to `/checkout/confirm` with the
+ * query string intact — `?order=` is the only thing that page needs.
+ */
+export default async function CheckoutSuccessPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
 
-export const metadata: Metadata = buildMetadata({
-  title: "Order Confirmed",
-  description: "Your order from The Secret Kitchen has been confirmed.",
-  path: "/checkout/success",
-  noIndex: true,
-});
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) value.forEach((entry) => query.append(key, entry));
+    else if (value !== undefined) query.set(key, value);
+  }
 
-export default function CheckoutSuccessPage() {
-  return (
-    <section className="pb-24 pt-32 lg:pt-40">
-      <div className="container-page">
-        {/* useSearchParams needs a Suspense boundary during prerender. */}
-        <Suspense fallback={<div className="shimmer mx-auto h-96 max-w-2xl rounded-3xl" />}>
-          <OrderConfirmation />
-        </Suspense>
-      </div>
-    </section>
-  );
+  const suffix = query.toString();
+  redirect(suffix ? `/checkout/confirm?${suffix}` : "/checkout/confirm");
 }

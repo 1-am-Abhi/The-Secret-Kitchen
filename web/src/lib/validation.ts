@@ -38,6 +38,77 @@ export const contactSchema = z.object({
 
 export type ContactValues = z.infer<typeof contactSchema>;
 
+/* ==========================================================================
+   Checkout
+   ========================================================================== */
+
+/**
+ * The live checkout schema.
+ *
+ * Deliberately short: the order is placed over WhatsApp and priced entirely
+ * server-side, so the form only collects what the kitchen and the rider
+ * genuinely need. Anything else (payment method, delivery slot) is settled in
+ * the WhatsApp conversation and has no field here.
+ */
+export const orderCheckoutSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(2, "Please enter your full name")
+      .max(60, "That name looks a little too long"),
+    phone: indianPhone,
+    /** Checked by default — most people use one number for both. */
+    sameWhatsapp: z.boolean(),
+    whatsappPhone: z.string().trim().optional(),
+    addressLine1: z
+      .string()
+      .trim()
+      .min(8, "Please give the full address — flat, building and street")
+      .max(200, "Please keep the address under 200 characters"),
+    landmark: z.string().trim().max(80, "Please keep the landmark under 80 characters").optional(),
+    pincode: indianPincode,
+    kitchenNote: z
+      .string()
+      .trim()
+      .max(300, "Please keep notes for the kitchen under 300 characters")
+      .optional(),
+  })
+  .superRefine((values, ctx) => {
+    // Only validate the WhatsApp number when it is actually being collected —
+    // an untouched hidden field must never block a submit.
+    if (values.sameWhatsapp) return;
+    const digits = (values.whatsappPhone ?? "")
+      .replace(/[\s\-()]/g, "")
+      .replace(/^(\+91|91|0)/, "");
+    if (!/^[6-9]\d{9}$/.test(digits)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["whatsappPhone"],
+        message: "Enter a valid 10-digit WhatsApp number",
+      });
+    }
+  });
+
+export type OrderCheckoutValues = z.infer<typeof orderCheckoutSchema>;
+
+/** Order numbers are `TSK-YYYY-NNNNN`; lookup is case- and space-insensitive. */
+export const orderLookupSchema = z.object({
+  orderNumber: z
+    .string()
+    .min(1, "Enter your order ID")
+    .transform((value) => value.trim().toUpperCase().replace(/\s+/g, ""))
+    .refine((value) => /^TSK-\d{4}-\d{5}$/.test(value), {
+      message: "Order IDs look like TSK-2026-00041",
+    }),
+});
+
+export type OrderLookupValues = z.infer<typeof orderLookupSchema>;
+
+/**
+ * @deprecated Superseded by `orderCheckoutSchema`. Retained only so nothing
+ * importing it breaks; delete once no consumer remains.
+ */
 export const checkoutSchema = z.object({
   // Step 1 — who
   name: z.string().min(2, "Please enter your full name").max(60),

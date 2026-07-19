@@ -3,23 +3,17 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, type FieldErrors } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+  AlertCircle,
   ArrowLeft,
-  ArrowRight,
-  Banknote,
-  Briefcase,
-  Check,
-  CreditCard,
-  Home,
-  Landmark,
   Loader2,
-  Lock,
   MapPin,
-  Smartphone,
+  MessageCircle,
+  Send,
+  ShieldCheck,
   User,
-  Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -31,141 +25,148 @@ import { Checkbox, Separator } from "@/components/ui/form-controls";
 import { Input, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { siteConfig } from "@/config/site";
-import { placeOrder } from "@/lib/api";
-import { CHECKOUT_STEP_FIELDS, checkoutSchema, type CheckoutValues } from "@/lib/validation";
+import {
+  createOrder,
+  OrderError,
+  saveHandoff,
+  type CreateOrderInput,
+} from "@/lib/orders";
+import { orderCheckoutSchema, type OrderCheckoutValues } from "@/lib/validation";
 import { cn, formatPrice } from "@/lib/utils";
 import { lineKey, selectTotals, useCartStore } from "@/store/cart-store";
 
-const STEPS = [
-  { id: 1, title: "Contact", description: "Who is this order for", icon: User },
-  { id: 2, title: "Address", description: "Where should it go", icon: MapPin },
-  { id: 3, title: "Payment", description: "When and how to pay", icon: CreditCard },
-] as const;
-
-const PAYMENT_METHODS = [
-  { id: "upi", label: "UPI", detail: "GPay, PhonePe, Paytm", icon: Smartphone },
-  { id: "card", label: "Card", detail: "Credit or debit", icon: CreditCard },
-  { id: "netbanking", label: "Net Banking", detail: "All major banks", icon: Landmark },
-  { id: "wallet", label: "Wallet", detail: "Paytm, Amazon Pay", icon: Wallet },
-  { id: "cod", label: "Cash on Delivery", detail: "Pay the rider", icon: Banknote },
-] as const;
-
-const DELIVERY_SLOTS = [
-  { id: "asap", label: "As soon as possible", detail: "~32 minutes" },
-  { id: "lunch", label: "Lunch slot", detail: "12:00 – 1:30 PM" },
-  { id: "dinner", label: "Dinner slot", detail: "7:30 – 9:00 PM" },
-] as const;
-
-const ADDRESS_TYPES = [
-  { id: "home", label: "Home", icon: Home },
-  { id: "work", label: "Work", icon: Briefcase },
-  { id: "other", label: "Other", icon: MapPin },
-] as const;
-
 /**
- * Three-step checkout.
+ * Checkout.
  *
- * A wizard rather than one long form: on mobile a 14-field checkout reads as
- * insurmountable, and validating step by step means an error surfaces next to
- * the field that caused it instead of after a full-page submit.
+ * One short, well-grouped form rather than a wizard: pricing and payment are
+ * both settled server-side and over WhatsApp respectively, so there are only
+ * seven fields left and a multi-step flow would be ceremony for its own sake.
+ *
+ * The submit contract is strict and comes from docs/order-flow.md:
+ * the order row must be committed by the API *before* anything else happens.
+ * We therefore do not clear the cart and do not open WhatsApp here — both
+ * belong to the confirmation page, which only renders once `createOrder`
+ * resolved. If this request fails the customer keeps their cart and can retry.
  */
 export function CheckoutFlow() {
   const router = useRouter();
   const [mounted, setMounted] = React.useState(false);
-  const [step, setStep] = React.useState<1 | 2 | 3>(1);
 
   const lines = useCartStore((state) => state.lines);
   const couponCode = useCartStore((state) => state.couponCode);
-  const clearCart = useCartStore((state) => state.clearCart);
 
+  // The cart hydrates from localStorage, so the first paint must match the
+  // server render.
   React.useEffect(() => setMounted(true), []);
 
   const totals = selectTotals(lines, couponCode);
 
-  const form = useForm<CheckoutValues>({
-    resolver: zodResolver(checkoutSchema),
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    setFocus,
+    formState: { errors, isSubmitting },
+  } = useForm<OrderCheckoutValues>({
+    resolver: zodResolver(orderCheckoutSchema),
+    // onTouched: no red text mid-word, but instant re-validation once someone
+    // has seen an error and is fixing it.
     mode: "onTouched",
     defaultValues: {
       name: "",
       phone: "",
-      email: "",
+      sameWhatsapp: true,
+      whatsappPhone: "",
       addressLine1: "",
-      addressLine2: "",
       landmark: "",
-      city: siteConfig.address.city,
       pincode: "",
-      addressType: "home",
-      deliverySlot: "asap",
-      paymentMethod: "upi",
-      instructions: "",
-      contactlessDelivery: false,
+      kitchenNote: "",
     },
   });
 
-  const {
-    register,
-    handleSubmit,
-    trigger,
-    watch,
-    setValue,
-    formState: { errors, isSubmitting },
-  } = form;
+  const sameWhatsapp = watch("sameWhatsapp");
 
-  const goNext = async () => {
-    // Validate only this step's fields so a later empty field cannot block
-    // progress through an earlier, correctly-filled step.
-    const valid = await trigger([...CHECKOUT_STEP_FIELDS[step]]);
-    if (!valid) return;
-    setStep((current) => (current < 3 ? ((current + 1) as 2 | 3) : current));
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
+  const onSubmit = async (values: OrderCheckoutValues) => {
+    const payload: CreateOrderInput = {
+      channel: "WHATSAPP",
+      customer: {
+        name: values.name,
+        phone: values.phone,
+        whatsappPhone: values.sameWhatsapp ? null : (values.whatsappPhone ?? null),
+      },
+      address: {
+        line1: values.addressLine1,
+        landmark: values.landmark || null,
+        // The kitchen delivers within one city, so it is not worth a field on
+        // the form — but the API contract requires it, so we send the
+        // configured city rather than an empty string.
+        city: siteConfig.address.city,
+        pincode: values.pincode,
+      },
+      items: lines.map((line) => ({
+        itemId: line.itemId,
+        quantity: line.quantity,
+        addOnIds: line.addOnIds ?? [],
+        note: line.note ?? null,
+      })),
+      couponCode,
+      kitchenNote: values.kitchenNote || null,
+    };
 
-  const goBack = () => {
-    setStep((current) => (current > 1 ? ((current - 1) as 1 | 2) : current));
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const onSubmit = async (values: CheckoutValues) => {
     try {
-      const response = await placeOrder({
-        customer: { name: values.name, phone: values.phone, email: values.email },
-        address: {
-          line1: values.addressLine1,
-          line2: values.addressLine2,
-          landmark: values.landmark,
-          city: values.city,
-          pincode: values.pincode,
-          type: values.addressType,
-        },
-        deliverySlot: values.deliverySlot,
-        paymentMethod: values.paymentMethod,
-        instructions: values.instructions,
-        contactlessDelivery: values.contactlessDelivery,
-        items: lines,
-        totals,
-        couponCode,
-      });
+      const order = await createOrder(payload);
 
-      // Order number is generated by the API; fall back to a local reference
-      // when running without a backend so the confirmation page still works.
-      const orderId =
-        (response as { orderId?: string }).orderId ??
-        `TSK${Date.now().toString().slice(-8)}`;
+      // Hand the WhatsApp URL to the confirmation page through sessionStorage
+      // so it can attempt the auto-open on its first paint with no refetch.
+      saveHandoff(order);
 
-      clearCart();
-      router.push(`/checkout/success?order=${orderId}`);
-    } catch {
-      toast.error("We couldn't place that order", {
-        description: "Please try again, or call the kitchen and we'll take it over the phone.",
+      router.push(`/checkout/confirm?order=${encodeURIComponent(order.orderNumber)}`);
+    } catch (error) {
+      // Cart deliberately untouched — nothing was saved, so nothing is lost.
+      if (error instanceof OrderError) {
+        const actionable =
+          error.code === "COUPON_REJECTED" ||
+          error.code === "BELOW_MINIMUM_ORDER" ||
+          error.code === "ITEM_UNAVAILABLE";
+
+        toast.error(
+          error.code === "COUPON_REJECTED"
+            ? "That coupon no longer applies"
+            : error.code === "BELOW_MINIMUM_ORDER"
+              ? "This order is below our minimum"
+              : error.code === "ITEM_UNAVAILABLE"
+                ? "A dish just became unavailable"
+                : "We could not save your order",
+          {
+            description: error.message,
+            duration: actionable ? 10_000 : 7_000,
+            action: actionable
+              ? { label: "Edit cart", onClick: () => router.push("/cart") }
+              : undefined,
+          },
+        );
+        return;
+      }
+
+      toast.error("We could not save your order", {
+        description:
+          "Nothing was charged and your cart is intact. Please try again, or call the kitchen and we will take it over the phone.",
       });
     }
+  };
+
+  /** Move focus to the first invalid control so keyboard users are not stranded. */
+  const onInvalid = (fieldErrors: FieldErrors<OrderCheckoutValues>) => {
+    const first = Object.keys(fieldErrors)[0] as keyof OrderCheckoutValues | undefined;
+    if (first) setFocus(first);
   };
 
   if (!mounted) return <div className="shimmer h-96 rounded-3xl" />;
 
   if (lines.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-5 rounded-3xl border border-dashed border-ink-300 bg-ink-50/50 px-8 py-20 text-center">
+      <div className="flex flex-col items-center gap-5 rounded-3xl border border-dashed border-ink-300 bg-ink-50/50 px-6 py-20 text-center sm:px-8">
         <p className="font-display text-2xl text-ink-900">Nothing to check out</p>
         <p className="max-w-sm text-sm text-ink-500">
           Your cart is empty. Add a dish or two and come back.
@@ -180,385 +181,235 @@ export function CheckoutFlow() {
   return (
     <div className="grid gap-8 lg:grid-cols-12 lg:gap-10">
       <div className="lg:col-span-7 xl:col-span-8">
-        {/* ---- Step indicator ---- */}
-        <ol className="flex items-center gap-2" aria-label="Checkout progress">
-          {STEPS.map((entry, index) => {
-            const state = step === entry.id ? "current" : step > entry.id ? "done" : "todo";
-            return (
-              <li key={entry.id} className="flex flex-1 items-center gap-2">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <span
-                    aria-current={state === "current" ? "step" : undefined}
-                    className={cn(
-                      "flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold transition-colors",
-                      state === "done" && "bg-fresh-500 text-white",
-                      state === "current" && "bg-brand-500 text-white shadow-[var(--shadow-glow)]",
-                      state === "todo" && "bg-ink-100 text-ink-400",
-                    )}
-                  >
-                    {state === "done" ? <Check className="size-4" strokeWidth={3} /> : entry.id}
-                  </span>
-                  <span className="hidden min-w-0 sm:block">
-                    <span
-                      className={cn(
-                        "block truncate text-sm font-semibold",
-                        state === "todo" ? "text-ink-400" : "text-ink-900",
-                      )}
-                    >
-                      {entry.title}
-                    </span>
-                    <span className="block truncate text-[11px] text-ink-400">
-                      {entry.description}
-                    </span>
-                  </span>
-                </div>
-                {index < STEPS.length - 1 && (
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "h-px flex-1 transition-colors",
-                      step > entry.id ? "bg-fresh-400" : "bg-ink-200",
-                    )}
-                  />
-                )}
-              </li>
-            );
-          })}
-        </ol>
+        {/* ---- How this works: set expectations before the first field ---- */}
+        <div className="flex gap-4 rounded-3xl border border-fresh-200 bg-fresh-50/70 p-5 sm:p-6">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-fresh-500 text-white shadow-soft">
+            <MessageCircle className="size-5" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <p className="font-semibold text-ink-900">How this works</p>
+            <p className="mt-1.5 text-sm leading-relaxed text-ink-600">
+              We save your order first — you will get an order ID straight away. WhatsApp then
+              opens with the details filled in, and your order reaches the kitchen the moment you
+              press <strong className="font-semibold text-ink-800">Send</strong>.
+            </p>
+          </div>
+        </div>
 
-        {/* ---- Form ---- */}
-        <form onSubmit={handleSubmit(onSubmit)} noValidate className="mt-8">
+        <form
+          onSubmit={handleSubmit(onSubmit, onInvalid)}
+          noValidate
+          className="mt-6 flex flex-col gap-6"
+        >
           <motion.div
-            key={step}
-            initial={{ opacity: 0, x: 16 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
             className="rounded-3xl border border-ink-200/70 bg-white p-6 shadow-soft sm:p-8"
           >
-            {/* ---- Step 1: contact ---- */}
-            {step === 1 && (
-              <fieldset>
-                <legend className="font-display text-2xl text-ink-900">
-                  Who is this order for?
-                </legend>
-                <p className="mt-2 text-sm text-ink-500">
-                  We only use this to deliver your food and send order updates.
-                </p>
+            {/* ---- Contact ---- */}
+            <fieldset>
+              <legend className="flex items-center gap-2.5 font-display text-xl text-ink-900 sm:text-2xl">
+                <span className="flex size-8 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+                  <User className="size-4" aria-hidden />
+                </span>
+                Who is this order for?
+              </legend>
 
-                <div className="mt-7 grid gap-5">
-                  <Field
+              <div className="mt-6 grid gap-5">
+                <Field id="name" label="Full name" error={errors.name?.message} required>
+                  <Input
                     id="name"
-                    label="Full name"
-                    error={errors.name?.message}
-                    required
-                  >
-                    <Input
-                      id="name"
-                      autoComplete="name"
-                      placeholder="Ananya Sharma"
-                      aria-invalid={Boolean(errors.name)}
-                      {...register("name")}
-                    />
-                  </Field>
+                    autoComplete="name"
+                    placeholder="Ananya Sharma"
+                    aria-invalid={Boolean(errors.name)}
+                    aria-describedby={errors.name ? "name-error" : undefined}
+                    {...register("name")}
+                  />
+                </Field>
 
-                  <Field
+                <Field
+                  id="phone"
+                  label="Phone number"
+                  hint="The rider will call this"
+                  error={errors.phone?.message}
+                  required
+                >
+                  <PhoneInput
                     id="phone"
-                    label="Mobile number"
-                    hint="The rider will call this number"
-                    error={errors.phone?.message}
-                    required
+                    invalid={Boolean(errors.phone)}
+                    describedBy={errors.phone ? "phone-error" : undefined}
+                    autoComplete="tel"
+                    {...register("phone")}
+                  />
+                </Field>
+
+                <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-ink-200 bg-ink-50/50 p-4">
+                  <Checkbox
+                    checked={sameWhatsapp}
+                    onCheckedChange={(checked) =>
+                      setValue("sameWhatsapp", checked === true, {
+                        shouldValidate: true,
+                        shouldTouch: true,
+                      })
+                    }
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-ink-800">
+                      My WhatsApp number is the same
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-ink-500">
+                      Uncheck if the kitchen should message you on a different number.
+                    </span>
+                  </span>
+                </label>
+
+                {!sameWhatsapp && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                    className="overflow-hidden"
                   >
-                    <div className="flex">
-                      <span className="flex h-12 items-center rounded-l-xl border border-r-0 border-ink-200 bg-ink-50 px-3.5 text-sm text-ink-500">
-                        +91
-                      </span>
-                      <Input
-                        id="phone"
-                        type="tel"
-                        inputMode="numeric"
-                        autoComplete="tel"
-                        placeholder="98765 43210"
-                        aria-invalid={Boolean(errors.phone)}
-                        className="rounded-l-none"
-                        {...register("phone")}
+                    <Field
+                      id="whatsappPhone"
+                      label="WhatsApp number"
+                      error={errors.whatsappPhone?.message}
+                      required
+                    >
+                      <PhoneInput
+                        id="whatsappPhone"
+                        invalid={Boolean(errors.whatsappPhone)}
+                        describedBy={errors.whatsappPhone ? "whatsappPhone-error" : undefined}
+                        autoComplete="tel-national"
+                        {...register("whatsappPhone")}
                       />
-                    </div>
-                  </Field>
+                    </Field>
+                  </motion.div>
+                )}
+              </div>
+            </fieldset>
 
-                  <Field
-                    id="email"
-                    label="Email"
-                    hint="Optional — for your receipt"
-                    error={errors.email?.message}
-                  >
-                    <Input
-                      id="email"
-                      type="email"
-                      autoComplete="email"
-                      placeholder="you@example.com"
-                      aria-invalid={Boolean(errors.email)}
-                      {...register("email")}
-                    />
-                  </Field>
-                </div>
-              </fieldset>
-            )}
+            <Separator className="my-8" />
 
-            {/* ---- Step 2: address ---- */}
-            {step === 2 && (
-              <fieldset>
-                <legend className="font-display text-2xl text-ink-900">
-                  Where should we deliver?
-                </legend>
-                <p className="mt-2 text-sm text-ink-500">
-                  We deliver across Noida sectors 58–63 and parts of Ghaziabad.
-                </p>
+            {/* ---- Address ---- */}
+            <fieldset>
+              <legend className="flex items-center gap-2.5 font-display text-xl text-ink-900 sm:text-2xl">
+                <span className="flex size-8 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+                  <MapPin className="size-4" aria-hidden />
+                </span>
+                Where should we deliver?
+              </legend>
 
-                <div className="mt-7 grid gap-5">
-                  <Field
+              <div className="mt-6 grid gap-5">
+                <Field
+                  id="addressLine1"
+                  label="Delivery address"
+                  error={errors.addressLine1?.message}
+                  required
+                >
+                  <Textarea
                     id="addressLine1"
-                    label="Flat / House / Building"
-                    error={errors.addressLine1?.message}
-                    required
-                  >
-                    <Input
-                      id="addressLine1"
-                      autoComplete="address-line1"
-                      placeholder="B-402, Sunrise Residency"
-                      aria-invalid={Boolean(errors.addressLine1)}
-                      {...register("addressLine1")}
-                    />
-                  </Field>
+                    rows={3}
+                    autoComplete="street-address"
+                    placeholder="B-402, Sunrise Residency, Sector 62"
+                    aria-invalid={Boolean(errors.addressLine1)}
+                    aria-describedby={errors.addressLine1 ? "addressLine1-error" : undefined}
+                    className="min-h-24"
+                    {...register("addressLine1")}
+                  />
+                </Field>
 
-                  <Field id="addressLine2" label="Street / Sector" error={errors.addressLine2?.message}>
-                    <Input
-                      id="addressLine2"
-                      autoComplete="address-line2"
-                      placeholder="Sector 62"
-                      {...register("addressLine2")}
-                    />
-                  </Field>
-
-                  <div className="grid gap-5 sm:grid-cols-2">
-                    <Field id="city" label="City" error={errors.city?.message} required>
-                      <Input
-                        id="city"
-                        autoComplete="address-level2"
-                        aria-invalid={Boolean(errors.city)}
-                        {...register("city")}
-                      />
-                    </Field>
-
-                    <Field id="pincode" label="Pincode" error={errors.pincode?.message} required>
-                      <Input
-                        id="pincode"
-                        inputMode="numeric"
-                        maxLength={6}
-                        autoComplete="postal-code"
-                        placeholder="201309"
-                        aria-invalid={Boolean(errors.pincode)}
-                        {...register("pincode")}
-                      />
-                    </Field>
-                  </div>
-
+                <div className="grid gap-5 sm:grid-cols-2">
                   <Field
                     id="landmark"
                     label="Landmark"
-                    hint="Optional — helps the rider find you faster"
+                    hint="Optional"
                     error={errors.landmark?.message}
                   >
                     <Input
                       id="landmark"
                       placeholder="Opposite Fortis Hospital"
+                      aria-invalid={Boolean(errors.landmark)}
+                      aria-describedby={errors.landmark ? "landmark-error" : undefined}
                       {...register("landmark")}
                     />
                   </Field>
 
-                  <fieldset>
-                    <legend className="text-sm font-medium text-ink-700">
-                      Save this address as
-                    </legend>
-                    <div className="mt-3 flex gap-2">
-                      {ADDRESS_TYPES.map(({ id, label, icon: Icon }) => (
-                        <button
-                          key={id}
-                          type="button"
-                          onClick={() => setValue("addressType", id)}
-                          aria-pressed={watch("addressType") === id}
-                          className={cn(
-                            "flex flex-1 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-medium transition-all",
-                            watch("addressType") === id
-                              ? "border-brand-500 bg-brand-50 text-brand-700"
-                              : "border-ink-200 text-ink-600 hover:border-ink-300",
-                          )}
-                        >
-                          <Icon className="size-4" />
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </fieldset>
+                  <Field id="pincode" label="Pincode" error={errors.pincode?.message} required>
+                    <Input
+                      id="pincode"
+                      inputMode="numeric"
+                      maxLength={6}
+                      autoComplete="postal-code"
+                      placeholder="201309"
+                      aria-invalid={Boolean(errors.pincode)}
+                      aria-describedby={errors.pincode ? "pincode-error" : undefined}
+                      {...register("pincode")}
+                    />
+                  </Field>
                 </div>
-              </fieldset>
-            )}
+              </div>
+            </fieldset>
 
-            {/* ---- Step 3: payment ---- */}
-            {step === 3 && (
-              <fieldset>
-                <legend className="font-display text-2xl text-ink-900">
-                  When and how would you like to pay?
-                </legend>
-                <p className="mt-2 text-sm text-ink-500">
-                  Nothing is cooked until this is confirmed.
-                </p>
+            <Separator className="my-8" />
 
-                <div className="mt-7">
-                  <p className="text-sm font-medium text-ink-700">Delivery slot</p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    {DELIVERY_SLOTS.map((slot) => (
-                      <button
-                        key={slot.id}
-                        type="button"
-                        onClick={() => setValue("deliverySlot", slot.id)}
-                        aria-pressed={watch("deliverySlot") === slot.id}
-                        className={cn(
-                          "rounded-2xl border p-4 text-left transition-all",
-                          watch("deliverySlot") === slot.id
-                            ? "border-brand-500 bg-brand-50"
-                            : "border-ink-200 hover:border-ink-300",
-                        )}
-                      >
-                        <span className="block text-sm font-semibold text-ink-900">
-                          {slot.label}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-ink-500">
-                          {slot.detail}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <Separator className="my-7" />
-
-                <div>
-                  <p className="text-sm font-medium text-ink-700">Payment method</p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {PAYMENT_METHODS.map(({ id, label, detail, icon: Icon }) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setValue("paymentMethod", id)}
-                        aria-pressed={watch("paymentMethod") === id}
-                        className={cn(
-                          "flex items-center gap-3 rounded-2xl border p-4 text-left transition-all",
-                          watch("paymentMethod") === id
-                            ? "border-brand-500 bg-brand-50"
-                            : "border-ink-200 hover:border-ink-300",
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "flex size-10 shrink-0 items-center justify-center rounded-xl",
-                            watch("paymentMethod") === id
-                              ? "bg-brand-500 text-white"
-                              : "bg-ink-100 text-ink-500",
-                          )}
-                        >
-                          <Icon className="size-5" />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block text-sm font-semibold text-ink-900">
-                            {label}
-                          </span>
-                          <span className="block truncate text-xs text-ink-500">
-                            {detail}
-                          </span>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <Separator className="my-7" />
-
-                <Field
-                  id="instructions"
-                  label="Delivery instructions"
-                  hint="Optional"
-                  error={errors.instructions?.message}
-                >
-                  <Textarea
-                    id="instructions"
-                    placeholder="Ring the bell twice, or leave at the door…"
-                    maxLength={300}
-                    {...register("instructions")}
-                  />
-                </Field>
-
-                <label className="mt-5 flex cursor-pointer items-center gap-3 rounded-2xl border border-ink-200 p-4">
-                  <Checkbox
-                    checked={watch("contactlessDelivery")}
-                    onCheckedChange={(checked) =>
-                      setValue("contactlessDelivery", checked === true)
-                    }
-                  />
-                  <span>
-                    <span className="block text-sm font-medium text-ink-800">
-                      Contactless delivery
-                    </span>
-                    <span className="block text-xs text-ink-500">
-                      The rider will leave your order at the door and step back.
-                    </span>
-                  </span>
-                </label>
-              </fieldset>
-            )}
+            {/* ---- Kitchen note ---- */}
+            <Field
+              id="kitchenNote"
+              label="Notes for the kitchen"
+              hint="Optional"
+              error={errors.kitchenNote?.message}
+            >
+              <Textarea
+                id="kitchenNote"
+                maxLength={300}
+                placeholder="Less spicy please, and no coriander on the dal."
+                aria-invalid={Boolean(errors.kitchenNote)}
+                aria-describedby={errors.kitchenNote ? "kitchenNote-error" : undefined}
+                {...register("kitchenNote")}
+              />
+            </Field>
           </motion.div>
 
-          {/* ---- Navigation ---- */}
-          <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
-            {step > 1 ? (
-              <Button type="button" variant="outline" size="lg" onClick={goBack}>
+          {/* ---- Actions ---- */}
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <Button asChild variant="ghost" size="lg">
+              <Link href="/cart">
                 <ArrowLeft />
-                Back
-              </Button>
-            ) : (
-              <Button asChild variant="ghost" size="lg">
-                <Link href="/cart">
-                  <ArrowLeft />
-                  Back to cart
-                </Link>
-              </Button>
-            )}
+                Back to cart
+              </Link>
+            </Button>
 
-            {step < 3 ? (
-              <Button type="button" size="lg" onClick={goNext}>
-                Continue
-                <ArrowRight />
-              </Button>
-            ) : (
-              <Button type="submit" size="lg" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="animate-spin" />
-                    Placing order…
-                  </>
-                ) : (
-                  <>
-                    <Lock />
-                    Place order · {formatPrice(totals.total)}
-                  </>
-                )}
-              </Button>
-            )}
+            <Button type="submit" size="lg" disabled={isSubmitting} className="sm:min-w-64">
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="animate-spin" />
+                  Saving your order…
+                </>
+              ) : (
+                <>
+                  <Send />
+                  Place order · {formatPrice(totals.total)}
+                </>
+              )}
+            </Button>
           </div>
+
+          {/* Announces the in-flight state to screen readers. */}
+          <p aria-live="polite" className="sr-only">
+            {isSubmitting ? "Saving your order, please wait." : ""}
+          </p>
+
+          <p className="text-xs leading-relaxed text-ink-400">
+            The total shown is indicative — the kitchen recalculates it from today&apos;s menu when
+            your order is saved, and the confirmed bill appears on the next screen.
+          </p>
         </form>
       </div>
 
       {/* ---- Order summary ---- */}
-      <aside className="lg:col-span-5 xl:col-span-4">
+      <aside className="lg:col-span-5 xl:col-span-4" aria-label="Order summary">
         <div className="sticky top-28 rounded-3xl border border-ink-200/70 bg-white p-6 shadow-lift">
           <h2 className="font-display text-xl text-ink-900">Order summary</h2>
 
@@ -590,16 +441,20 @@ export function CheckoutFlow() {
 
           <BillBreakdown totals={totals} couponCode={couponCode} />
 
-          <p className="mt-5 flex items-start gap-2 rounded-xl bg-ink-50 px-4 py-3 text-xs text-ink-500">
-            <Lock className="mt-0.5 size-3.5 shrink-0" />
-            Payments are processed over an encrypted connection. We never store
-            your card details.
+          <p className="mt-5 flex items-start gap-2 rounded-xl bg-ink-50 px-4 py-3 text-xs leading-relaxed text-ink-500">
+            <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            Your order is saved to our kitchen system before WhatsApp opens — nothing gets lost if
+            the message does not go through.
           </p>
         </div>
       </aside>
     </div>
   );
 }
+
+/* ==========================================================================
+   Field primitives
+   ========================================================================== */
 
 /** Consistent label + hint + error wrapper for every field. */
 function Field({
@@ -632,10 +487,44 @@ function Field({
       </div>
       <div className="mt-2">{children}</div>
       {error && (
-        <p role="alert" className="mt-1.5 text-xs text-destructive">
+        <p
+          id={`${id}-error`}
+          role="alert"
+          className="mt-1.5 flex items-center gap-1.5 text-xs text-destructive"
+        >
+          <AlertCircle className="size-3.5 shrink-0" aria-hidden />
           {error}
         </p>
       )}
     </div>
   );
 }
+
+/** +91 prefixed phone field. Forwards the ref so `register()` still works. */
+const PhoneInput = React.forwardRef<
+  HTMLInputElement,
+  React.ComponentProps<"input"> & { invalid?: boolean; describedBy?: string }
+>(({ invalid, describedBy, className, ...props }, ref) => (
+  <div className="flex">
+    <span
+      aria-hidden
+      className="flex h-12 items-center rounded-l-xl border border-r-0 border-ink-200 bg-ink-50 px-3.5 text-sm text-ink-500"
+    >
+      +91
+    </span>
+    <input
+      ref={ref}
+      type="tel"
+      inputMode="numeric"
+      placeholder="98765 43210"
+      aria-invalid={invalid}
+      aria-describedby={describedBy}
+      className={cn(
+        "h-12 w-full rounded-r-xl border border-ink-200 bg-white px-4 text-sm text-ink-900 placeholder:text-ink-400 transition-all duration-200 focus:border-brand-400 focus:outline-none focus:ring-4 focus:ring-brand-500/12 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/12",
+        className,
+      )}
+      {...props}
+    />
+  </div>
+));
+PhoneInput.displayName = "PhoneInput";
