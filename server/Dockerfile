@@ -1,44 +1,52 @@
 # syntax=docker/dockerfile:1
 
 # ==========================================================================
-# The Secret Kitchen API — multi-stage build.
-# Stage 1 compiles with the full toolchain; stage 2 ships only production
-# dependencies and dist/, which keeps the runtime image small and removes the
-# compiler from the attack surface.
+# The Secret Kitchen API — Multi-stage Production Dockerfile
 # ==========================================================================
 
-# --------------------------- Stage 1: build -------------------------------
-FROM node:22-alpine AS builder
+# --------------------------- Stage 1: Build -------------------------------
+FROM node:22-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Copying manifests first means `npm ci` is only re-run when dependencies
-# actually change, not on every source edit.
+# Install OpenSSL (required by Prisma)
+RUN apt-get update && \
+    apt-get install -y openssl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy package files
 COPY package*.json ./
+
+# Install all dependencies
 RUN npm ci
 
-# The Prisma schema must be present before `prisma generate` runs inside build.
+# Copy source
 COPY prisma ./prisma
 COPY tsconfig.json ./
 COPY src ./src
 
+# Build application
 RUN npm run build
 
-# Re-resolve node_modules with production dependencies only. The generated
-# Prisma client lives inside node_modules, so it is regenerated afterwards.
-RUN npm prune --omit=dev && npx prisma generate
+# Keep only production dependencies
+RUN npm prune --omit=dev
 
-# --------------------------- Stage 2: runtime -----------------------------
-FROM node:22-alpine AS runner
+# Generate Prisma Client
+RUN npx prisma generate
 
-# dumb-init reaps zombies and forwards SIGTERM to node, which is what makes
-# the graceful shutdown in src/index.ts actually fire under Docker.
-RUN apk add --no-cache dumb-init
+# --------------------------- Stage 2: Runtime -----------------------------
+FROM node:22-bookworm-slim AS runner
 
-ENV NODE_ENV=production
 WORKDIR /app
 
-# node:22-alpine already ships an unprivileged `node` user (uid 1000).
+ENV NODE_ENV=production
+
+# Install runtime packages
+RUN apt-get update && \
+    apt-get install -y dumb-init openssl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy application
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/prisma ./prisma
@@ -49,7 +57,8 @@ USER node
 EXPOSE 4000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["dumb-init", "--"]
+
 CMD ["node", "dist/index.js"]
