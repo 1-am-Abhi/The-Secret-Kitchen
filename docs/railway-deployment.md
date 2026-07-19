@@ -171,17 +171,19 @@ against a fresh, empty PostgreSQL instance:
 
 ---
 
-## Fallback: the "Root Directory" approach
+## Do not set a "Root Directory"
 
-If you would rather use Railway's dashboard-native monorepo support:
+Leave Railway's *Root Directory* blank. The build context must be the
+repository root, because the Dockerfile copies from `server/`. Setting it to
+`server` moves the context down one level, and every `COPY server/...` then
+points outside the context and fails.
 
-1. Service → *Settings* → *Root Directory* → `server`
-2. Delete the root `railway.toml` and `Dockerfile`, or Railway will keep using them
-3. Railway then builds `server/` in isolation and picks up `server/Dockerfile`
-
-This works, but the configuration then lives in the dashboard rather than in
-git, and must be re-applied for every new environment. Prefer the committed
-setup above.
+There is deliberately only ONE Dockerfile, at the repository root, and
+`railway.toml` pins the build to it by path. A second copy previously lived in
+`server/`; the two drifted, and because the root `.dockerignore` excluded the
+`server/` one from the build context, editing it had no effect on the deploy at
+all — including switching its base image. It has been removed rather than kept
+in sync.
 
 ---
 
@@ -189,6 +191,17 @@ setup above.
 
 - `server/render.yaml` — Render blueprint, an alternative host. Unaffected by
   these files; it uses `rootDir: server` with a Node runtime rather than Docker.
-- `server/Dockerfile` — for building the API standalone from inside `server/`.
-  If you change build steps, change them in both Dockerfiles.
 - `web/vercel.json` — frontend deployment. Untouched.
+
+## The image and the Prisma binary target must agree
+
+`prisma/schema.prisma` declares `binaryTargets = ["native",
+"debian-openssl-3.0.x"]`, so every stage runs on `node:22-bookworm-slim` and
+installs `openssl`. Moving to an Alpine base without also switching the target
+to `linux-musl-openssl-3.0.x` reintroduces "Prisma failed to detect libssl" and
+"Could not parse schema engine response" — errors that appear at runtime, after
+the build has already reported success.
+
+`prisma` is a production dependency, not a dev one. It has to be: the image
+installs with `--omit=dev`, and both the client generation and Railway's
+`preDeployCommand` (`npx prisma migrate deploy`) need the CLI present.
