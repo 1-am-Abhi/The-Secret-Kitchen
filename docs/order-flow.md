@@ -168,7 +168,15 @@ not something the browser can observe, so we must not pretend otherwise.
 | `PATCH` | `/api/admin/orders/:id`           | Advance status, add notes            |
 | `GET`   | `/api/admin/orders/stream`        | **SSE** live feed                    |
 
-### SSE events on `/api/admin/orders/stream`
+The legacy `/api/orders/admin/*` mounting resolves to the same handlers so
+anything built against it keeps working; new work should use `/api/admin/*`.
+
+### SSE events on `/api/admin/orders/stream?token=<jwt>`
+
+`EventSource` cannot set an `Authorization` header, so the admin token is passed
+as a query parameter (`token` or `access_token`). Accepted for `GET` only, never
+for a mutation. If tokens ever become long-lived, replace this with a
+single-use stream ticket.
 
 ```
 event: order.created
@@ -200,7 +208,34 @@ so customer-facing progress and the internal audit trail can never disagree.
 | ---------------------------------- | ---------------------------------------------------------------- |
 | API unreachable at checkout        | Show an error and keep the cart. **Never** claim the order exists |
 | Coupon expired between load & pay  | `422 COUPON_REJECTED` — customer re-confirms the new total        |
-| Dish went unavailable              | `409` naming the dish                                             |
+| Dish went unavailable              | `409 ITEM_UNAVAILABLE` naming the dish                            |
+| Unknown dish reference             | `422 ITEM_UNAVAILABLE`                                            |
 | Below minimum order                | `422 BELOW_MINIMUM_ORDER`                                         |
+| Illegal status transition          | `409 ILLEGAL_TRANSITION`, with the legal `allowed` list in details |
 | WhatsApp popup blocked             | Confirmation page always shows a manual Send button               |
 | Customer never presses Send        | Order stays `PENDING_CUSTOMER_CONFIRMATION`; admin sees and calls |
+
+---
+
+## Verified behaviour
+
+Exercised against a live PostgreSQL instance with the API, storefront and admin
+panel all running:
+
+- Order row committed **before** any WhatsApp link is produced
+- `TSK-2026-NNNNN` stays gapless and unique under concurrent checkouts
+- Full pipeline `CONFIRMED → … → DELIVERED` with an append-only timeline
+- Terminal orders reject further transitions (`409`)
+- SSE delivers a 2-minute replay on connect, then live `order.created` and
+  `order.status_changed`
+- An order whose customer never pressed Send stays in
+  `PENDING_CUSTOMER_CONFIRMATION` and remains visible to the kitchen
+- `handoff-opened` records the handoff **without** changing status
+- `channel: "RAZORPAY"` reaches its handler and reports "not enabled yet",
+  proving the abstraction is wired rather than theoretical
+
+## Optional field conventions
+
+JSON has no `undefined`. Clients that model "no landmark" as `null` are correct,
+so every optional free-text field on the order API accepts `null` and normalises
+it internally. Schemas using bare `.optional()` reject valid requests.
