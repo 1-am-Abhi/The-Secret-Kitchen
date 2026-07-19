@@ -45,3 +45,6 @@ Thumbs.db
 # Prisma local database artifacts
 server/prisma/*.db
 server/prisma/*.db-journal
+
+# Local verification database cluster
+scratchpad/

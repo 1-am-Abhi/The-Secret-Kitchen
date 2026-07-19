@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
-  Bell,
   ChevronDown,
   ExternalLink,
   LifeBuoy,
@@ -19,12 +18,17 @@ import {
 } from "lucide-react";
 
 import { resolveAdminIcon } from "@/components/admin/icon";
-import { formatClock } from "@/components/admin/status-maps";
+import {
+  ConnectionIndicator,
+  NotificationsBell,
+  OrderNotificationsProvider,
+  OrdersUnreadBadge,
+} from "@/components/admin/order-notifications";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { adminNav } from "@/config/navigation";
 import { siteConfig } from "@/config/site";
-import { adminNotifications, adminUser, unreadNotificationCount } from "@/data/admin-mock";
+import { adminUser } from "@/data/admin-mock";
 import { cn } from "@/lib/utils";
 
 /* ========================================================================== */
@@ -105,6 +109,10 @@ function SidebarNav({
                 )}
                 <Icon className="size-[18px] shrink-0" aria-hidden />
                 {!collapsed && <span className="truncate">{item.label}</span>}
+                {/* Unread new-order count, on the section it belongs to. */}
+                {item.href === "/admin/orders" && (
+                  <OrdersUnreadBadge className={cn(collapsed && "absolute right-2 top-1.5 ml-0")} />
+                )}
               </Link>
             </li>
           );
@@ -178,71 +186,6 @@ function SidebarBody({
 /*  Top bar                                                                   */
 /* ========================================================================== */
 
-function NotificationsMenu() {
-  return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
-        <button
-          type="button"
-          aria-label={`Notifications, ${unreadNotificationCount} unread`}
-          className="relative flex size-10 items-center justify-center rounded-full text-ink-600 transition-colors hover:bg-ink-100 hover:text-ink-900 data-[state=open]:bg-ink-100"
-        >
-          <Bell className="size-[18px]" />
-          {unreadNotificationCount > 0 && (
-            <span className="absolute right-1.5 top-1.5 flex size-4 items-center justify-center rounded-full bg-brand-500 text-[10px] font-bold tabular-nums text-white ring-2 ring-white">
-              {unreadNotificationCount}
-            </span>
-          )}
-        </button>
-      </DropdownMenu.Trigger>
-
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          sideOffset={10}
-          className="z-50 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-ink-200/70 bg-white shadow-float data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
-        >
-          <div className="flex items-center justify-between border-b border-ink-100 px-5 py-4">
-            <p className="font-display text-base text-ink-900">Notifications</p>
-            <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-700">
-              {unreadNotificationCount} new
-            </span>
-          </div>
-
-          <ul className="max-h-80 overflow-y-auto py-1.5">
-            {adminNotifications.map((notification) => (
-              <li key={notification.id}>
-                <DropdownMenu.Item className="flex cursor-pointer gap-3 px-5 py-3 outline-none transition-colors data-[highlighted]:bg-ink-50">
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "mt-1.5 size-2 shrink-0 rounded-full",
-                      notification.unread ? "bg-brand-500" : "bg-ink-200",
-                    )}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-baseline justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-ink-900">
-                        {notification.title}
-                      </span>
-                      <span className="shrink-0 text-[11px] tabular-nums text-ink-400">
-                        {formatClock(notification.at)}
-                      </span>
-                    </span>
-                    <span className="mt-0.5 block text-xs leading-relaxed text-ink-500">
-                      {notification.body}
-                    </span>
-                  </span>
-                </DropdownMenu.Item>
-              </li>
-            ))}
-          </ul>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
-  );
-}
-
 function AccountMenu() {
   const items = [
     { label: "Profile", icon: UserRound },
@@ -310,7 +253,22 @@ function AccountMenu() {
 /*  Shell                                                                     */
 /* ========================================================================== */
 
+/**
+ * The provider wraps the whole shell so the order stream is a single
+ * subscription shared by every admin page, and so the unread badge, the bell
+ * and the toast stack all read the same state. It also survives client-side
+ * navigation between admin routes, which is what lets "View order" hand a
+ * ticket number to the orders screen.
+ */
 export function AdminShell({ children }: { children: React.ReactNode }) {
+  return (
+    <OrderNotificationsProvider>
+      <AdminShellChrome>{children}</AdminShellChrome>
+    </OrderNotificationsProvider>
+  );
+}
+
+function AdminShellChrome({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = React.useState(false);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const pathname = usePathname();
@@ -382,7 +340,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="ml-auto flex items-center gap-1 lg:gap-2">
-              <NotificationsMenu />
+              {/* Live/reconnecting/offline state for the order stream. */}
+              <ConnectionIndicator className="hidden sm:inline-flex" />
+              <NotificationsBell />
               <span className="hidden h-6 w-px bg-ink-200 sm:block" aria-hidden />
               <AccountMenu />
             </div>

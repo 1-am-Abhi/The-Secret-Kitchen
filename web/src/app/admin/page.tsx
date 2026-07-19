@@ -3,6 +3,7 @@ import { ArrowUpRight, TriangleAlert } from "lucide-react";
 
 import { BarChart } from "@/components/admin/bar-chart";
 import { ChartCard, ChartLegend } from "@/components/admin/chart-card";
+import { AwaitingConfirmationTile, NewOrdersFeed } from "@/components/admin/dashboard-live";
 import { DonutChart } from "@/components/admin/donut-chart";
 import { PageHeader } from "@/components/admin/page-header";
 import { AreaChart, SparkLine } from "@/components/admin/spark-line";
@@ -20,6 +21,7 @@ import { Card } from "@/components/ui/card";
 import { FoodImage } from "@/components/ui/food-image";
 import {
   ORDER_STATUS_LABEL,
+  adminOrders,
   dashboardKpis,
   liveOrderFeed,
   ordersByStatus,
@@ -56,6 +58,9 @@ const KPI_ICON_NAMES: Record<string, string> = {
 
 export default function AdminDashboardPage() {
   const last14 = revenueSeries.slice(-14);
+  // Offline stand-in for the "awaiting confirmation" tile. The tile swaps to
+  // the live API count as soon as one is available, and labels which it shows.
+  const sampleAwaitingCount = adminOrders.filter((order) => order.status === "pending").length;
   const monthRevenue = revenueSeries.reduce((sum, point) => sum + point.revenue, 0);
   const donutSegments = ordersByStatus
     .filter((entry) => entry.count > 0)
@@ -88,7 +93,10 @@ export default function AdminDashboardPage() {
       />
 
       {/* ---- KPI tiles ---------------------------------------------------- */}
-      <Stagger className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <Stagger className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <StaggerItem>
+          <AwaitingConfirmationTile fallback={sampleAwaitingCount} />
+        </StaggerItem>
         {dashboardKpis.map((kpi, index) => (
           <StaggerItem key={kpi.id}>
             <StatCard
@@ -112,6 +120,13 @@ export default function AdminDashboardPage() {
           </StaggerItem>
         ))}
       </Stagger>
+
+      {/* ---- Live new-order feed ------------------------------------------- */}
+      {/* Client component: it subscribes to the shared SSE/polling stream that
+          also drives the topbar bell and the new-order popup. */}
+      <Reveal>
+        <NewOrdersFeed />
+      </Reveal>
 
       {/* ---- Revenue + status mix ----------------------------------------- */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
