@@ -14,8 +14,9 @@ export default function manifest(): MetadataRoute.Manifest {
     orientation: "portrait",
     categories: ["food", "shopping", "lifestyle"],
     icons: [
-      { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "any" },
-      { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      // Served by src/app/icon.tsx — the route has no file extension.
+      { src: "/icon", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/icon", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
   };
 }

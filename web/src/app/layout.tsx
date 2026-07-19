@@ -65,6 +65,16 @@ export default function RootLayout({
         {/* Warm up the image CDN connection before the hero image is requested. */}
         <link rel="preconnect" href="https://images.unsplash.com" />
         <link rel="dns-prefetch" href="https://res.cloudinary.com" />
+
+        {/*
+          Scroll-reveal elements render at opacity 0 and are animated in by
+          Framer Motion. With JavaScript disabled that animation never runs, so
+          the page would appear blank. Force them visible instead — the content
+          matters far more than the entrance.
+        */}
+        <noscript>
+          <style>{`[data-reveal]{opacity:1!important;transform:none!important}`}</style>
+        </noscript>
       </head>
       <body className="min-h-dvh bg-background font-sans text-foreground antialiased">
         {/* Keyboard users can jump straight past the navbar. */}

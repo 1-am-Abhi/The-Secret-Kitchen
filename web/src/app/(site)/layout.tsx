@@ -1,7 +1,4 @@
-import { Toaster } from "sonner";
-
-import { CartDrawer } from "@/components/cart/cart-drawer";
-import { FloatingDock } from "@/components/layout/floating-dock";
+import { DeferredChrome } from "@/components/layout/deferred-chrome";
 import { Footer } from "@/components/layout/footer";
 import { Navbar } from "@/components/layout/navbar";
 
@@ -20,19 +17,8 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
       </main>
       <Footer />
 
-      <FloatingDock />
-      <CartDrawer />
-
-      <Toaster
-        position="bottom-center"
-        richColors
-        closeButton
-        toastOptions={{
-          classNames: {
-            toast: "rounded-2xl border-ink-200 shadow-lift font-sans",
-          },
-        }}
-      />
+      {/* Cart drawer, floating dock and toasts — loaded off the critical path. */}
+      <DeferredChrome />
     </div>
   );
 }

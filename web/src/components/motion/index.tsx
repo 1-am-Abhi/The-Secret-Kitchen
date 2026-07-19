@@ -106,6 +106,10 @@ export function Reveal({
       variants={shouldReduceMotion ? VARIANTS.fade : VARIANTS[animation]}
       transition={{ delay }}
       className={className}
+      // Reveal elements start at opacity 0, so without JavaScript they would
+      // never become visible. This marker lets a <noscript> rule force them
+      // back on — see the noscript block in the root layout.
+      data-reveal=""
       {...props}
     >
       {children}
@@ -149,6 +153,7 @@ export function Stagger({
         visible: { transition: { staggerChildren: stagger, delayChildren: delay } },
       }}
       className={className}
+      data-reveal=""
       {...props}
     >
       {children}
@@ -167,6 +172,7 @@ export function StaggerItem({
     <motion.div
       variants={shouldReduceMotion ? VARIANTS.fade : VARIANTS[animation]}
       className={className}
+      data-reveal=""
       {...props}
     >
       {children}
