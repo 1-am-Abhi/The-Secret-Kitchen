@@ -242,12 +242,16 @@ export function CountUp({
 
   React.useEffect(() => spring.on("change", setDisplay), [spring]);
 
-  const shown = shouldReduceMotion ? value : display;
+  // A non-finite `value` (undefined from an API that dropped a field, or NaN
+  // from a bad division upstream) must degrade to a dash rather than throw and
+  // take down the whole page from inside a presentational component.
+  const target = Number.isFinite(value) ? value : null;
+  const shown = shouldReduceMotion ? target : Number.isFinite(display) ? display : target;
 
   return (
     <span ref={ref} className={className}>
       {prefix}
-      {shown.toFixed(decimals)}
+      {shown === null ? "—" : shown.toFixed(decimals)}
       {suffix}
     </span>
   );

@@ -66,7 +66,7 @@ export function Hero({
                 <VegMark className="size-3.5" />
                 100% Pure Veg Cloud Kitchen
                 {/* Only shown once real customers have actually rated us. */}
-                {stats?.averageRating !== null && stats?.averageRating !== undefined && (
+                {typeof stats?.averageRating === "number" && (
                   <>
                     <span className="h-3 w-px bg-brand-200" />
                     <span className="flex items-center gap-1 text-fresh-700">
@@ -236,7 +236,11 @@ function selectHeroStats(
   return chosen
     .map(({ metric, label }) => {
       const raw = stats[metric];
-      if (raw === null || raw === 0) return null;
+      // `metric` comes from admin-authored content, and the API may add or drop
+      // fields independently of this bundle, so `raw` can legitimately be
+      // undefined. Checking the type rather than just `null` is what stops
+      // `undefined.toFixed()` throwing and taking the whole page down.
+      if (typeof raw !== "number" || !Number.isFinite(raw) || raw === 0) return null;
       const value = metric === "averageRating" ? `${raw.toFixed(1)}★` : formatStat(raw);
       return { value, label: label || DEFAULT_STAT_LABELS[metric] };
     })

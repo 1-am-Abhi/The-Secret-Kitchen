@@ -36,7 +36,9 @@ export async function StatsBand() {
   if (stats.activeSubscribers > 0) {
     tiles.push({ ...toCounter(stats.activeSubscribers), label: "Active tiffin subscribers" });
   }
-  if (stats.averageRating !== null && stats.reviewCount > 0) {
+  // typeof rather than `!== null`: a degenerate API response can omit the field
+  // entirely, and an undefined here would reach CountUp and throw on .toFixed().
+  if (typeof stats.averageRating === "number" && stats.reviewCount > 0) {
     tiles.push({
       value: stats.averageRating,
       decimals: 1,
