@@ -1,0 +1,595 @@
+// The Secret Kitchen — data model.
+//
+// Money convention: every monetary column is an `Int` holding WHOLE RUPEES.
+// The storefront prices everything in whole rupees (₹49, ₹229 …) and never
+// shows paise, so storing paise would only invite rounding drift between the
+// cart total the customer agreed to and the total we persist. GST is the only
+// fractional computation and it is rounded to the nearest rupee at the point
+// of calculation (see src/utils/pricing.ts).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================================================
+//    Enums
+// ==========================================================================
+
+enum SpiceLevel {
+  MILD
+  MEDIUM
+  SPICY
+}
+
+enum DishTag {
+  BESTSELLER
+  NEW
+  CHEF_SPECIAL
+  HEALTHY
+  HIGH_PROTEIN
+  JAIN_AVAILABLE
+  KIDS_FAVOURITE
+  VALUE
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  UPI
+  CARD
+  NETBANKING
+  WALLET
+  COD
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PlanTier {
+  STUDENT
+  REGULAR
+  PREMIUM
+}
+
+enum BillingCycle {
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+enum MealSlot {
+  LUNCH
+  DINNER
+  BOTH
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FLAT
+  FREEBIE
+}
+
+enum OfferScope {
+  ORDER
+  SUBSCRIPTION
+}
+
+enum GalleryCategory {
+  DISHES
+  KITCHEN
+  TEAM
+  PACKAGING
+  MOMENTS
+}
+
+enum GalleryAspect {
+  PORTRAIT
+  LANDSCAPE
+  SQUARE
+}
+
+enum FaqCategory {
+  ORDERING
+  DELIVERY
+  TIFFIN
+  FOOD
+  PAYMENTS
+}
+
+enum EnquiryStatus {
+  NEW
+  IN_PROGRESS
+  RESOLVED
+}
+
+enum AdminRole {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+// ==========================================================================
+//    Catalogue
+// ==========================================================================
+
+model Category {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  tagline   String
+  /// Lucide icon name; the web layer maps it to a component.
+  icon      String
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items MenuItem[]
+
+  @@index([sortOrder])
+}
+
+model MenuItem {
+  id          String  @id @default(cuid())
+  /// Stable business key carried over from the storefront catalogue (e.g. "mag-01").
+  code        String  @unique
+  slug        String  @unique
+  name        String
+  description String
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  price          Int
+  /// Struck-through "was" price. Null when the dish is not discounted.
+  compareAtPrice Int?
+
+  imageId  String
+  imageUrl String?
+
+  isVeg       Boolean    @default(true)
+  isJain      Boolean    @default(false)
+  spiceLevel  SpiceLevel @default(MILD)
+  prepTime    Int
+  calories    Int
+  protein     Int?
+  serves      String
+  rating      Float      @default(0)
+  ratingCount Int        @default(0)
+  tags        DishTag[]
+  available   Boolean    @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  addOns         AddOn[]
+  orderItems     OrderItem[]
+  dailySpecials  DailySpecial[]
+
+  @@index([categoryId])
+  @@index([available])
+  @@index([tags])
+}
+
+model AddOn {
+  id    String @id @default(cuid())
+  /// Business key shared across dishes ("add-cheese"); unique per menu item.
+  code  String
+  label String
+  price Int
+
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([menuItemId, code])
+  @@index([menuItemId])
+}
+
+/// A dish promoted as "Today's Special" for one calendar day.
+model DailySpecial {
+  id         String   @id @default(cuid())
+  /// Midnight UTC of the day this special is published for.
+  date       DateTime @db.Date
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  /// Optional promotional price for the day; falls back to the dish price.
+  specialPrice Int?
+  headline   String?
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([date, menuItemId])
+  @@index([date])
+}
+
+// ==========================================================================
+//    Customers
+// ==========================================================================
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  /// Phone is the identity for a cloud kitchen — email is optional.
+  phone     String   @unique
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  addresses     Address[]
+  orders        Order[]
+  subscriptions Subscription[]
+
+  @@index([email])
+}
+
+model Address {
+  id         String  @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  label     String  @default("Home")
+  line1     String
+  line2     String?
+  landmark  String?
+  city      String  @default("Noida")
+  state     String  @default("Uttar Pradesh")
+  pincode   String
+  latitude  Float?
+  longitude Float?
+  isDefault Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders        Order[]
+  subscriptions Subscription[]
+
+  @@index([customerId])
+  @@index([pincode])
+}
+
+// ==========================================================================
+//    Orders
+// ==========================================================================
+
+model Order {
+  id          String @id @default(cuid())
+  /// Human-facing reference printed on the bill, e.g. "TSK-260719-4F2K".
+  orderNumber String @unique
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  addressId String?
+  address   Address? @relation(fields: [addressId], references: [id], onDelete: SetNull)
+
+  /// Address is denormalised onto the order so an edited or deleted address
+  /// can never rewrite the delivery details of a historical order.
+  deliveryName    String
+  deliveryPhone   String
+  deliveryLine1   String
+  deliveryLine2   String?
+  deliveryLandmark String?
+  deliveryCity    String
+  deliveryPincode String
+
+  status        OrderStatus   @default(PENDING)
+  paymentMethod PaymentMethod
+  paymentStatus PaymentStatus @default(PENDING)
+  paymentRef    String?
+
+  couponCode String?
+  offerId    String?
+  offer      Offer?  @relation(fields: [offerId], references: [id], onDelete: SetNull)
+
+  // Bill breakdown, all whole rupees. Recomputed server-side at creation time;
+  // the client's numbers are never trusted.
+  subtotal     Int
+  discount     Int @default(0)
+  deliveryFee  Int @default(0)
+  packagingFee Int @default(0)
+  gst          Int @default(0)
+  total        Int
+
+  note          String?
+  scheduledFor  DateTime?
+  confirmedAt   DateTime?
+  deliveredAt   DateTime?
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items OrderItem[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([paymentStatus])
+}
+
+model OrderItem {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  /// Null for custom-built tiffin boxes, which have no catalogue row.
+  menuItemId String?
+  menuItem   MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+
+  /// Name/price snapshotted at purchase time — menu edits must not rewrite history.
+  name       String
+  slug       String
+  unitPrice  Int
+  quantity   Int
+  addOnTotal Int      @default(0)
+  /// Chosen add-on labels, snapshotted for the kitchen docket.
+  addOnLabels String[]
+  /// Component labels when this line is a custom tiffin box.
+  componentLabels String[]
+  isCustomTiffin  Boolean @default(false)
+  note       String?
+  lineTotal  Int
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([menuItemId])
+}
+
+// ==========================================================================
+//    Tiffin subscriptions
+// ==========================================================================
+
+model TiffinPlan {
+  id          String   @id @default(cuid())
+  tier        PlanTier @unique
+  name        String
+  headline    String
+  description String
+
+  /// Per-meal price for each billing cycle, in whole rupees.
+  weeklyPricePerMeal  Int
+  monthlyPricePerMeal Int
+  /// Meals billed in one period of the corresponding cycle.
+  weeklyMeals         Int
+  monthlyMeals        Int
+
+  includes  String[]
+  excludes  String[]
+  badge     String?
+  highlight Boolean  @default(false)
+  imageId   String
+  imageUrl  String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id     String @id @default(cuid())
+  /// Human-facing reference, e.g. "SUB-260719-9QX1".
+  code   String @unique
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  planId String
+  plan   TiffinPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  addressId String?
+  address   Address? @relation(fields: [addressId], references: [id], onDelete: SetNull)
+  /// Denormalised label so the dashboard can render without a join.
+  addressLabel String @default("Home")
+
+  cycle  BillingCycle       @default(MONTHLY)
+  slot   MealSlot           @default(LUNCH)
+  status SubscriptionStatus @default(PENDING)
+
+  startDate        DateTime
+  nextDeliveryDate DateTime
+  endDate          DateTime?
+  pausedAt         DateTime?
+  cancelledAt      DateTime?
+
+  mealsTotal     Int
+  mealsRemaining Int
+  pricePerMeal   Int
+  /// Amount invoiced for the current billing period, after any coupon.
+  amount         Int
+  discount       Int    @default(0)
+  couponCode     String?
+
+  paymentMethod PaymentMethod @default(UPI)
+  paymentStatus PaymentStatus @default(PENDING)
+  preferences   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  skips SubscriptionSkip[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([nextDeliveryDate])
+}
+
+model SubscriptionSkip {
+  id             String       @id @default(cuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  /// The delivery date the customer opted out of (date-only, no time zone games).
+  date   DateTime @db.Date
+  slot   MealSlot @default(LUNCH)
+  reason String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([subscriptionId, date, slot])
+  @@index([subscriptionId])
+}
+
+// ==========================================================================
+//    Marketing
+// ==========================================================================
+
+model Offer {
+  id            String       @id @default(cuid())
+  code          String       @unique
+  title         String
+  description   String
+  discountType  DiscountType
+  discountValue Int
+  minOrder      Int          @default(0)
+  maxDiscount   Int?
+  validFrom     DateTime     @default(now())
+  validUntil    DateTime
+  terms         String[]
+  imageId       String
+  imageUrl      String?
+  featured      Boolean      @default(false)
+  appliesTo     OfferScope   @default(ORDER)
+  active        Boolean      @default(true)
+  /// Null means unlimited. `usedCount` is incremented when an order redeems it.
+  usageLimit    Int?
+  usedCount     Int          @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+
+  @@index([active, validUntil])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  name      String
+  role      String
+  location  String
+  rating    Int
+  quote     String
+  initials  String
+  reviewDate DateTime
+  verified  Boolean  @default(false)
+  published Boolean  @default(true)
+  featured  Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([published, rating])
+}
+
+model GalleryImage {
+  id        String          @id @default(cuid())
+  imageId   String
+  imageUrl  String?
+  /// Cloudinary public_id, kept so admin deletes can also purge the CDN copy.
+  publicId  String?
+  caption   String
+  category  GalleryCategory
+  aspect    GalleryAspect   @default(SQUARE)
+  sortOrder Int             @default(0)
+  published Boolean         @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category, sortOrder])
+}
+
+model Faq {
+  id        String      @id @default(cuid())
+  code      String      @unique
+  question  String
+  answer    String
+  category  FaqCategory
+  sortOrder Int         @default(0)
+  published Boolean     @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category, sortOrder])
+}
+
+model NewsletterSubscriber {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String?
+  source         String?
+  subscribed     Boolean   @default(true)
+  unsubscribedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([subscribed])
+}
+
+model ContactEnquiry {
+  id      String        @id @default(cuid())
+  name    String
+  email   String?
+  phone   String
+  subject String
+  message String
+  status  EnquiryStatus @default(NEW)
+  notes   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+}
+
+// ==========================================================================
+//    Admin
+// ==========================================================================
+
+model AdminUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         AdminRole @default(MANAGER)
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

@@ -1,0 +1,59 @@
+# Render blueprint for The Secret Kitchen API.
+# Deploy with: Render dashboard → New → Blueprint → point at this repo.
+# `rootDir` scopes the service to server/ so the Next.js app in web/ is ignored.
+
+services:
+  - type: web
+    name: secret-kitchen-api
+    runtime: node
+    plan: starter
+    region: singapore
+    rootDir: server
+    branch: main
+    # `migrate deploy` applies committed migrations without prompting — never
+    # use `migrate dev` on a deployed environment.
+    buildCommand: npm ci && npx prisma generate && npm run build && npx prisma migrate deploy
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: secret-kitchen-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGIN
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_FOLDER
+        value: the-secret-kitchen
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        value: Kitchen Admin
+      - key: RATE_LIMIT_WINDOW_MS
+        value: "900000"
+      - key: RATE_LIMIT_MAX
+        value: "100"
+      - key: BODY_LIMIT
+        value: 256kb
+      - key: LOG_REQUESTS
+        value: "true"
+
+databases:
+  - name: secret-kitchen-db
+    databaseName: secret_kitchen
+    plan: basic-256mb
+    region: singapore
