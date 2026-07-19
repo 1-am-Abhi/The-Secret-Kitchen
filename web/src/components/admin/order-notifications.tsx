@@ -461,11 +461,12 @@ export function OrderNotificationsProvider({ children }: { children: React.React
     let sseRetryTimer: number | undefined;
     let attempts = 0;
     /**
-     * The first poll only *seeds* the dedupe ledger. Without this, a fresh
-     * browser dropping straight into polling would announce every order already
-     * on the board as if it had just arrived.
+     * Polling reads the whole recent window every 30s, so "new" has to mean
+     * "placed after this panel opened" as well as "not already announced".
+     * Without the time gate, opening the panel mid-service would announce every
+     * ticket already on the board as if it had just arrived.
      */
-    let pollSeeded = seenRef.current.size > 0;
+    const sessionStart = Date.now();
 
     function clearTimers() {
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
@@ -486,13 +487,19 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       }
       setConnection("polling");
 
+      // Oldest first so a burst of orders is announced in the order it happened.
+      let seeded = false;
       for (const order of [...result.orders].reverse()) {
         if (seenRef.current.has(order.orderNumber)) continue;
-        if (!pollSeeded) {
-          // Seeding pass — remember it, do not announce it.
+
+        if (new Date(order.placedAt).getTime() < sessionStart) {
+          // Pre-existing ticket: remember it so it can never announce later,
+          // but do not shout about it now.
           seenRef.current.add(order.orderNumber);
+          seeded = true;
           continue;
         }
+
         handlersRef.current.handleCreated({
           orderNumber: order.orderNumber,
           customerName: order.customerName,
@@ -501,10 +508,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
           placedAt: order.placedAt,
         });
       }
-      if (!pollSeeded) {
-        pollSeeded = true;
-        persistSeen();
-      }
+      if (seeded) persistSeen();
       void handlersRef.current.refreshAwaiting();
     }
 

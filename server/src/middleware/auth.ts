@@ -49,7 +49,7 @@ function readBearer(header: string | undefined): string | null {
  */
 function readQueryToken(req: { method: string; query: Record<string, unknown> }): string | null {
   if (req.method !== "GET") return null;
-  const raw = req.query.access_token;
+  const raw = req.query.access_token ?? req.query.token;
   return typeof raw === "string" && raw.trim() ? raw.trim() : null;
 }
 

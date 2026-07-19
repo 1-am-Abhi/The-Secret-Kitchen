@@ -48,11 +48,11 @@ const orderLineSchema = z
     quantity: z.number().int().min(1).max(50),
     /** Add-on `code`s as exposed by GET /api/menu (`addOns[].id`). */
     addOnIds: z.array(z.string().trim().min(1)).max(12).default([]),
-    note: z.string().trim().max(280).optional(),
+    note: z.string().trim().max(280).nullish().transform((v) => v ?? undefined),
 
     /* Custom "Build Your Tiffin" line */
     isCustomTiffin: z.boolean().default(false),
-    name: z.string().trim().min(1).max(120).optional(),
+    name: z.string().trim().min(1).max(120).nullish().transform((v) => v ?? undefined),
     componentIds: z.array(z.string().trim().min(1)).max(20).default([]),
   })
   .refine((line) => Boolean(line.itemId) || line.isCustomTiffin, {
@@ -72,13 +72,23 @@ export const createOrderSchema = z.object({
     phone: phoneSchema,
     /** Only sent when it differs from the delivery phone. */
     whatsappPhone: phoneSchema.nullish(),
-    email: z.string().email().toLowerCase().trim().optional(),
+    email: z.string().email().toLowerCase().trim().nullish().transform((v) => v || undefined),
   }),
   address: z.object({
     label: z.string().trim().max(40).default("Home"),
     line1: z.string().trim().min(3).max(160),
-    line2: z.string().trim().max(160).optional(),
-    landmark: z.string().trim().max(120).optional(),
+    line2: z
+      .string()
+      .trim()
+      .max(160)
+      .nullish()
+      .transform((v) => v || undefined),
+    landmark: z
+      .string()
+      .trim()
+      .max(120)
+      .nullish()
+      .transform((v) => v || undefined),
     city: z.string().trim().min(2).max(60).default("Noida"),
     state: z.string().trim().min(2).max(60).default("Uttar Pradesh"),
     pincode: pincodeSchema,

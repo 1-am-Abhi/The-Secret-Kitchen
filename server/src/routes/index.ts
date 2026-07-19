@@ -11,6 +11,7 @@ import { galleryRouter } from "../modules/gallery/gallery.routes";
 import { menuRouter } from "../modules/menu/menu.routes";
 import { newsletterRouter } from "../modules/newsletter/newsletter.routes";
 import { offersRouter } from "../modules/offers/offers.routes";
+import { adminOrdersRouter } from "../modules/orders/orders.admin.routes";
 import { ordersRouter } from "../modules/orders/orders.routes";
 import { reviewsRouter } from "../modules/reviews/reviews.routes";
 import { specialsRouter } from "../modules/specials/specials.routes";
@@ -44,6 +45,9 @@ apiRouter.use("/specials", specialsRouter);
 apiRouter.use("/plans", plansRouter);
 apiRouter.use("/subscriptions", subscriptionsRouter);
 apiRouter.use("/orders", ordersRouter);
+// Canonical admin surface. Grouping privileged routes under one prefix makes
+// them easy to reason about and to restrict at the edge.
+apiRouter.use("/admin/orders", adminOrdersRouter);
 apiRouter.use("/customers", customersRouter);
 apiRouter.use("/offers", offersRouter);
 apiRouter.use("/reviews", reviewsRouter);

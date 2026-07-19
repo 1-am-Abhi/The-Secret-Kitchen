@@ -37,7 +37,6 @@ export function AwaitingConfirmationTile({ fallback }: { fallback: number }) {
       value={value}
       icon="TriangleAlert"
       hint={live ? "needs a call or a WhatsApp nudge" : "sample data — API not connected"}
-      invertTrend
       visual={
         <Button variant="outline" size="sm" className="w-full" asChild>
           <Link href="/admin/orders">
