@@ -1,0 +1,50 @@
+# ==========================================================================
+# Railway configuration — The Secret Kitchen API.
+#
+# This repository is a monorepo (server/ + web/) with no root package.json, so
+# Railway's automatic build detection finds nothing to run at the root and
+# reports "No start command detected". Pointing it at an explicit Dockerfile
+# removes the guesswork entirely: the build is described, not inferred.
+#
+# Railway reads this file from the repository root. It configures the API
+# service ONLY. The frontend in web/ deploys separately to Vercel and is not
+# affected by anything here.
+# ==========================================================================
+
+[build]
+builder = "DOCKERFILE"
+# Relative to the repository root, which is also the Docker build context.
+dockerfilePath = "Dockerfile"
+
+# Without this, every commit to the frontend would rebuild and redeploy the
+# API. Railway only triggers a build when a changed path matches one of these.
+watchPatterns = [
+  "server/**",
+  "Dockerfile",
+  ".dockerignore",
+  "railway.toml",
+]
+
+[deploy]
+# Explicit rather than relying on the image CMD, so the start command is
+# visible in the Railway UI and in code review.
+startCommand = "node dist/index.js"
+
+# Applies committed migrations after the image is built but BEFORE traffic is
+# shifted to the new version. A failure here aborts the release and leaves the
+# previous deployment serving, which is exactly what you want from a migration
+# that cannot complete.
+#
+# `migrate deploy` (never `migrate dev`) is the non-interactive form: it applies
+# pending migrations and never generates, resets or prompts.
+preDeployCommand = "npx prisma migrate deploy"
+
+# The API's health endpoint pings the database, so a green check means the
+# service can actually serve — not merely that the process booted.
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300
+
+# A crash loop from a bad env var should surface in the dashboard rather than
+# restarting silently forever.
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

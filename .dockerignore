@@ -1,0 +1,51 @@
+# ==========================================================================
+# Root build context filter for the API image.
+#
+# Railway builds the Dockerfile with the REPOSITORY ROOT as the context, so
+# without this file the entire frontend — including web/node_modules and
+# web/.next — would be uploaded to the builder on every deploy. That is
+# hundreds of megabytes the API image never reads.
+#
+# This is a plain deny-list rather than an "exclude everything, then
+# re-include" allow-list. Allow-lists in .dockerignore depend on subtle
+# pattern/parent-directory precedence, and getting them wrong fails the build
+# with a confusing "file not found" on a COPY. Listing what to drop is duller
+# and much harder to break.
+# ==========================================================================
+
+# --- The frontend and docs: never part of the API image -------------------
+web
+docs
+
+# --- Dependencies and build output (restored/created inside the build) ----
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+
+# --- Secrets: must never enter an image layer -----------------------------
+**/.env
+**/.env.*
+!**/.env.example
+
+# --- VCS, tooling and editor noise ----------------------------------------
+.git
+.gitignore
+.github
+**/.DS_Store
+**/*.log
+**/npm-debug.log*
+**/coverage
+**/.vscode
+**/.idea
+
+# --- Deployment config not read by the build ------------------------------
+README.md
+railway.toml
+server/render.yaml
+server/README.md
+
+# The API's own Dockerfile, used for standalone builds from inside server/.
+# The root Dockerfile is the one Railway builds.
+server/Dockerfile
+server/.dockerignore
