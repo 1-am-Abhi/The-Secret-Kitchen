@@ -15,12 +15,24 @@ import type { DashboardQuery } from "./analytics.schema";
  */
 
 const ORDER_STATUSES: OrderStatus[] = [
-  "PENDING",
+  "PENDING_PAYMENT",
+  "PENDING_CUSTOMER_CONFIRMATION",
   "CONFIRMED",
   "PREPARING",
+  "COOKING",
+  "PACKED",
   "OUT_FOR_DELIVERY",
   "DELIVERED",
   "CANCELLED",
+];
+
+/** Everything the kitchen still owes a customer. */
+const IN_FLIGHT_STATUSES: OrderStatus[] = [
+  "CONFIRMED",
+  "PREPARING",
+  "COOKING",
+  "PACKED",
+  "OUT_FOR_DELIVERY",
 ];
 
 interface DailyBucket {
@@ -163,9 +175,11 @@ export const dashboard = asyncHandler(async (req: Request, res: Response) => {
       previousDelivered: previousRevenueAgg._count,
       changePercent: percentChange(revenueAgg._count, previousRevenueAgg._count),
       byStatus: statusMap,
-      // The kitchen's live queue: everything not yet delivered or cancelled.
-      inFlight:
-        statusMap.PENDING + statusMap.CONFIRMED + statusMap.PREPARING + statusMap.OUT_FOR_DELIVERY,
+      // The kitchen's live queue: confirmed work not yet delivered or cancelled.
+      inFlight: IN_FLIGHT_STATUSES.reduce((sum, status) => sum + statusMap[status], 0),
+      // Saved but not yet confirmed by the customer over WhatsApp. Surfaced
+      // separately because it is the queue that needs a human to chase it.
+      awaitingConfirmation: statusMap.PENDING_CUSTOMER_CONFIRMATION,
     },
     topDishes: topDishRows.map((row) => ({
       menuItemId: row.menuItemId,

@@ -33,6 +33,26 @@ export const orderLimiter = makeLimiter({
   message: { message: "Too many order attempts. Please try again shortly.", code: "RATE_LIMITED" },
 });
 
+/**
+ * Order tracking. The order number is the only credential and the sequence is
+ * deliberately guessable (the kitchen reads it aloud), so this limiter is what
+ * stops that predictability becoming an enumeration vector.
+ *
+ * The budget still has to cover legitimate use: the tracking page polls every
+ * 20s while an order is live, so a customer watching one order through a
+ * 45-minute delivery makes ~135 requests. 240 per 15 minutes leaves ample room
+ * for that plus a couple of family members watching the same order, while
+ * making a scrape of the sequence impractical.
+ */
+export const trackingLimiter = makeLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 240,
+  message: {
+    message: "Too many tracking requests. Please try again shortly.",
+    code: "RATE_LIMITED",
+  },
+});
+
 /** Coupon validation is the classic enumeration target — keep it tight. */
 export const couponLimiter = makeLimiter({
   windowMs: 5 * 60 * 1000,

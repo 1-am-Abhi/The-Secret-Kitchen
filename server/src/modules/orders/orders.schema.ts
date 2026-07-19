@@ -15,12 +15,25 @@ export const pincodeSchema = z
   .trim()
   .regex(/^\d{6}$/, "Enter a valid 6-digit pincode.");
 
-export const paymentMethodSchema = z.enum(["UPI", "CARD", "NETBANKING", "WALLET", "COD"]);
+export const paymentMethodSchema = z.enum([
+  "UPI",
+  "CARD",
+  "NETBANKING",
+  "WALLET",
+  "COD",
+  "WHATSAPP",
+]);
+
+/** How the order reached us. The channel decides its starting state. */
+export const orderChannelSchema = z.enum(["WHATSAPP", "RAZORPAY", "COD", "PHONE"]);
 
 export const orderStatusSchema = z.enum([
-  "PENDING",
+  "PENDING_PAYMENT",
+  "PENDING_CUSTOMER_CONFIRMATION",
   "CONFIRMED",
   "PREPARING",
+  "COOKING",
+  "PACKED",
   "OUT_FOR_DELIVERY",
   "DELIVERED",
   "CANCELLED",
@@ -47,9 +60,18 @@ const orderLineSchema = z
   });
 
 export const createOrderSchema = z.object({
+  /**
+   * Defaults to WHATSAPP: it is the live ordering channel. Sending
+   * `channel: "RAZORPAY"` is all the storefront will need to change when online
+   * payment is switched on.
+   */
+  channel: orderChannelSchema.default("WHATSAPP"),
+
   customer: z.object({
     name: z.string().trim().min(2).max(80),
     phone: phoneSchema,
+    /** Only sent when it differs from the delivery phone. */
+    whatsappPhone: phoneSchema.nullish(),
     email: z.string().email().toLowerCase().trim().optional(),
   }),
   address: z.object({
@@ -63,10 +85,17 @@ export const createOrderSchema = z.object({
     save: z.boolean().default(true),
   }),
   items: z.array(orderLineSchema).min(1, "Add at least one dish to your order.").max(50),
-  couponCode: z.string().trim().max(40).optional(),
-  paymentMethod: paymentMethodSchema,
+  couponCode: z.string().trim().max(40).nullish(),
+  /**
+   * The payment method is derived from the channel, not accepted from the
+   * client — otherwise a caller could claim a WhatsApp order was already paid.
+   * Kept optional purely so the admin's phone-order form can override it.
+   */
+  paymentMethod: paymentMethodSchema.optional(),
   paymentRef: z.string().trim().max(120).optional(),
-  note: z.string().trim().max(500).optional(),
+  /** Notes for the kitchen. `note` is accepted as a legacy alias. */
+  kitchenNote: z.string().trim().max(500).nullish(),
+  note: z.string().trim().max(500).nullish(),
   scheduledFor: z.coerce.date().optional(),
 });
 
@@ -92,6 +121,8 @@ export const updateOrderSchema = z
     paymentRef: z.string().trim().max(120).optional(),
     cancelReason: z.string().trim().max(280).optional(),
     note: z.string().trim().max(500).optional(),
+    /** Operator note attached to this specific transition in the timeline. */
+    statusNote: z.string().trim().max(280).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, { message: "Nothing to update." });
 

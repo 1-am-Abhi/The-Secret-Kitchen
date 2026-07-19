@@ -5,6 +5,9 @@ import type {
   GalleryAspect,
   GalleryCategory,
   MealSlot,
+  OrderChannel,
+  OrderStatus,
+  PaymentMethod,
   PlanTier,
   Prisma,
   SpiceLevel,
@@ -320,13 +323,41 @@ const DEMO_CUSTOMERS = [
   { name: "Sneha Gupta", phone: "9810012005", email: "sneha@example.com", line1: "204, Supertech Cape Town", pincode: "201301" },
 ] as const;
 
+/** Minutes offset helper for building plausible demo timelines. */
+function addMinutes(date: Date, minutes: number): Date {
+  return new Date(date.getTime() + minutes * 60_000);
+}
+
+/**
+ * The statuses an order in `final` must have passed through, so seeded demo
+ * orders carry a believable history rather than a single bare status.
+ */
+function timelineFor(final: OrderStatus): OrderStatus[] {
+  const pipeline: OrderStatus[] = [
+    "PENDING_CUSTOMER_CONFIRMATION",
+    "CONFIRMED",
+    "PREPARING",
+    "COOKING",
+    "PACKED",
+    "OUT_FOR_DELIVERY",
+    "DELIVERED",
+  ];
+
+  if (final === "CANCELLED") return ["PENDING_CUSTOMER_CONFIRMATION", "CONFIRMED", "CANCELLED"];
+  if (final === "PENDING_PAYMENT") return ["PENDING_PAYMENT"];
+
+  const index = pipeline.indexOf(final);
+  return index === -1 ? [final] : pipeline.slice(0, index + 1);
+}
+
 const DEMO_ORDER_PLAN: Array<{
   customer: number;
   items: Array<{ code: string; quantity: number }>;
-  status: "PENDING" | "CONFIRMED" | "PREPARING" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED";
+  status: OrderStatus;
+  channel?: OrderChannel;
   daysAgo: number;
   couponCode?: string;
-  paymentMethod: "UPI" | "CARD" | "NETBANKING" | "WALLET" | "COD";
+  paymentMethod: PaymentMethod;
 }> = [
   { customer: 0, items: [{ code: "nin-06", quantity: 1 }, { code: "par-03", quantity: 4 }], status: "DELIVERED", daysAgo: 1, paymentMethod: "UPI" },
   { customer: 1, items: [{ code: "mag-05", quantity: 2 }, { code: "bev-03", quantity: 2 }], status: "DELIVERED", daysAgo: 2, paymentMethod: "COD" },
@@ -336,7 +367,9 @@ const DEMO_ORDER_PLAN: Array<{
   { customer: 0, items: [{ code: "nin-05", quantity: 1 }, { code: "par-05", quantity: 2 }], status: "OUT_FOR_DELIVERY", daysAgo: 0, paymentMethod: "UPI" },
   { customer: 1, items: [{ code: "mag-06", quantity: 1 }, { code: "snk-01", quantity: 1 }], status: "PREPARING", daysAgo: 0, paymentMethod: "COD" },
   { customer: 2, items: [{ code: "idl-02", quantity: 1 }, { code: "bev-01", quantity: 1 }], status: "CONFIRMED", daysAgo: 0, paymentMethod: "UPI" },
-  { customer: 3, items: [{ code: "bur-02", quantity: 2 }, { code: "snk-02", quantity: 1 }], status: "PENDING", daysAgo: 0, paymentMethod: "CARD" },
+  { customer: 3, items: [{ code: "bur-02", quantity: 2 }, { code: "snk-02", quantity: 1 }], status: "PENDING_CUSTOMER_CONFIRMATION", daysAgo: 0, paymentMethod: "WHATSAPP", channel: "WHATSAPP" },
+  { customer: 4, items: [{ code: "nin-01", quantity: 1 }, { code: "ric-02", quantity: 1 }], status: "COOKING", daysAgo: 0, paymentMethod: "WHATSAPP", channel: "WHATSAPP" },
+  { customer: 0, items: [{ code: "pas-02", quantity: 1 }, { code: "bev-06", quantity: 1 }], status: "PACKED", daysAgo: 0, paymentMethod: "WHATSAPP", channel: "WHATSAPP" },
   { customer: 4, items: [{ code: "ric-05", quantity: 1 }], status: "CANCELLED", daysAgo: 4, paymentMethod: "UPI" },
 ];
 
@@ -434,9 +467,15 @@ async function seedDemoTransactions(itemIdsByCode: Map<string, string>, planIds:
         deliveryCity: "Noida",
         deliveryPincode: demoCustomer.pincode,
         status: plan.status,
+        channel: plan.channel ?? "COD",
         paymentMethod: plan.paymentMethod,
         paymentStatus:
-          plan.status === "CANCELLED" ? "REFUNDED" : plan.paymentMethod === "COD" && plan.status !== "DELIVERED" ? "PENDING" : "PAID",
+          plan.status === "CANCELLED"
+            ? "REFUNDED"
+            : plan.status !== "DELIVERED" &&
+                (plan.paymentMethod === "COD" || plan.paymentMethod === "WHATSAPP")
+              ? "PENDING"
+              : "PAID",
         couponCode: offer?.code ?? null,
         offerId: offer?.id ?? null,
         subtotal: bill.subtotal,
@@ -446,11 +485,20 @@ async function seedDemoTransactions(itemIdsByCode: Map<string, string>, planIds:
         gst: bill.gst,
         total: bill.total,
         createdAt: placedAt,
-        confirmedAt: plan.status === "PENDING" ? null : placedAt,
+        confirmedAt: plan.status === "PENDING_CUSTOMER_CONFIRMATION" ? null : placedAt,
         deliveredAt: plan.status === "DELIVERED" ? addDays(placedAt, 0) : null,
         cancelledAt: plan.status === "CANCELLED" ? placedAt : null,
         cancelReason: plan.status === "CANCELLED" ? "Customer changed plans" : null,
         items: { create: lines },
+        // Demo orders get a plausible history so the tracking timeline and the
+        // admin detail view have something to render.
+        events: {
+          create: timelineFor(plan.status).map((status, step) => ({
+            status,
+            actor: step === 0 ? "customer" : "seed",
+            createdAt: addMinutes(placedAt, step * 8),
+          })),
+        },
       },
     });
   }

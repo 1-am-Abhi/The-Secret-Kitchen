@@ -38,12 +38,28 @@ function readBearer(header: string | undefined): string | null {
 }
 
 /**
+ * Falls back to `?access_token=` for EventSource connections.
+ *
+ * The browser's EventSource API cannot set request headers, so an SSE stream
+ * has no way to send an Authorization header. The trade-off is that query
+ * strings can be captured in access logs and proxy traces — so this fallback is
+ * accepted ONLY for GET requests (the SSE stream is the only such route), never
+ * for a mutation. If tokens ever become long-lived, replace this with a
+ * single-use stream ticket.
+ */
+function readQueryToken(req: { method: string; query: Record<string, unknown> }): string | null {
+  if (req.method !== "GET") return null;
+  const raw = req.query.access_token;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
+
+/**
  * Verifies the JWT and re-checks the admin against the database on every
  * request. Re-reading costs one indexed lookup but means deactivating an admin
  * takes effect immediately instead of whenever their token happens to expire.
  */
 export const requireAdmin: RequestHandler = asyncHandler(async (req, _res, next) => {
-  const token = readBearer(req.headers.authorization);
+  const token = readBearer(req.headers.authorization) ?? readQueryToken(req);
   if (!token) throw AppError.unauthorized("Missing bearer token.");
 
   const decoded = jwt.verify(token, env.JWT_SECRET, { issuer: "the-secret-kitchen" });

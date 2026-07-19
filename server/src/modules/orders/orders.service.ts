@@ -72,8 +72,17 @@ export async function resolveOrderLines(items: CreateOrderInput["items"]): Promi
     }
 
     const item = byReference.get(line.itemId as string);
-    if (!item) throw AppError.badRequest(`We could not find the dish "${line.itemId}".`);
-    if (!item.available) throw AppError.conflict(`${item.name} is currently unavailable.`);
+    if (!item) {
+      throw new AppError(`We could not find the dish "${line.itemId}".`, 422, "ITEM_UNAVAILABLE", {
+        itemId: line.itemId,
+      });
+    }
+    if (!item.available) {
+      throw new AppError(`${item.name} is currently unavailable.`, 409, "ITEM_UNAVAILABLE", {
+        itemId: line.itemId,
+        name: item.name,
+      });
+    }
 
     const chosen = item.addOns.filter((addOn) => line.addOnIds.includes(addOn.code));
     const unknown = line.addOnIds.filter(
@@ -150,22 +159,8 @@ export async function resolveAddress(
 }
 
 /**
- * Legal status transitions. A delivered or cancelled order is terminal: letting
- * an admin walk one back would corrupt revenue reporting, which counts
- * DELIVERED rows.
+ * The status machine now lives in `orders.status.ts` alongside the append-only
+ * timeline it writes, so every transition — admin, customer cancellation, and
+ * later the payment webhook — goes through one place.
  */
-const ALLOWED_TRANSITIONS: Record<string, readonly string[]> = {
-  PENDING: ["CONFIRMED", "CANCELLED"],
-  CONFIRMED: ["PREPARING", "CANCELLED"],
-  PREPARING: ["OUT_FOR_DELIVERY", "CANCELLED"],
-  OUT_FOR_DELIVERY: ["DELIVERED", "CANCELLED"],
-  DELIVERED: [],
-  CANCELLED: [],
-};
-
-export function assertTransition(from: string, to: string): void {
-  if (from === to) return;
-  if (!ALLOWED_TRANSITIONS[from]?.includes(to)) {
-    throw AppError.conflict(`An order cannot move from ${from} to ${to}.`);
-  }
-}
+export { assertTransition, allowedNextStatuses, isTerminal } from "./orders.status";

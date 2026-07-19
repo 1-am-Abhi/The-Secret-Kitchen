@@ -33,6 +33,14 @@ const envSchema = z.object({
   CLOUDINARY_API_SECRET: z.string().optional(),
   CLOUDINARY_FOLDER: z.string().default("the-secret-kitchen"),
 
+  /**
+   * The kitchen's WhatsApp number — the destination of every order handoff
+   * link. Stored as digits; a bare 10-digit Indian number is prefixed with 91
+   * when the wa.me URL is built.
+   */
+  BUSINESS_WHATSAPP: z.string().min(10).default("919876543210"),
+  BUSINESS_NAME: z.string().default("The Secret Kitchen"),
+
   ADMIN_EMAIL: z.string().email().default("admin@thesecretkitchen.in"),
   ADMIN_PASSWORD: z.string().min(8).default("ChangeMe@12345"),
   ADMIN_NAME: z.string().default("Kitchen Admin"),

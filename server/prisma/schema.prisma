@@ -37,13 +37,33 @@ enum DishTag {
   VALUE
 }
 
+/// Order lifecycle. See docs/order-flow.md for the full state machine.
+///
+/// PENDING_CUSTOMER_CONFIRMATION is the entry state for WhatsApp orders: the
+/// row is committed BEFORE the WhatsApp deep link opens, so an order always
+/// exists even if the customer never presses Send. The browser cannot observe
+/// that Send, so nothing may auto-advance past this state — only the kitchen
+/// moves an order to CONFIRMED.
 enum OrderStatus {
-  PENDING
+  PENDING_PAYMENT
+  PENDING_CUSTOMER_CONFIRMATION
   CONFIRMED
   PREPARING
+  COOKING
+  PACKED
   OUT_FOR_DELIVERY
   DELIVERED
   CANCELLED
+}
+
+/// How the order reached us. Each channel has a handler that decides the
+/// initial status and the post-create handoff, which is what lets Razorpay be
+/// added later without touching the order model, admin panel or tracking page.
+enum OrderChannel {
+  WHATSAPP
+  RAZORPAY
+  COD
+  PHONE
 }
 
 enum PaymentMethod {
@@ -52,6 +72,8 @@ enum PaymentMethod {
   NETBANKING
   WALLET
   COD
+  /// Settled out of band — the kitchen agrees payment over WhatsApp.
+  WHATSAPP
 }
 
 enum PaymentStatus {
@@ -300,10 +322,19 @@ model Order {
   deliveryCity    String
   deliveryPincode String
 
-  status        OrderStatus   @default(PENDING)
+  /// WhatsApp number, when it differs from the delivery phone.
+  deliveryWhatsapp String?
+
+  status        OrderStatus   @default(PENDING_CUSTOMER_CONFIRMATION)
+  channel       OrderChannel  @default(WHATSAPP)
   paymentMethod PaymentMethod
   paymentStatus PaymentStatus @default(PENDING)
   paymentRef    String?
+
+  /// Set when the customer's browser opened the WhatsApp deep link. This is
+  /// telemetry ONLY — it records that we handed off, not that the message was
+  /// sent. Nothing in the system may treat it as confirmation.
+  handoffOpenedAt DateTime?
 
   couponCode String?
   offerId    String?
@@ -328,12 +359,47 @@ model Order {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items OrderItem[]
+  items  OrderItem[]
+  events OrderStatusEvent[]
 
   @@index([customerId])
   @@index([status])
   @@index([createdAt])
   @@index([paymentStatus])
+  @@index([channel])
+}
+
+/// Append-only status history.
+///
+/// Every transition writes a row here rather than only stamping a column, so
+/// the customer-facing tracking timeline and the internal audit trail render
+/// from the same data and can never disagree.
+model OrderStatusEvent {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  status OrderStatus
+  /// Optional operator note, e.g. a cancellation reason.
+  note String?
+  /// Who caused the transition — an admin email, or "system"/"customer".
+  actor String @default("system")
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+/// Allocates gapless, sequential order numbers per calendar year.
+///
+/// One row per year, incremented inside the order-creation transaction with a
+/// locking update so two concurrent checkouts can never receive the same
+/// number. Sequential rather than random because the kitchen reads these aloud
+/// over WhatsApp and counts them by hand at end of service.
+model OrderCounter {
+  year      Int      @id
+  lastValue Int      @default(0)
+  updatedAt DateTime @updatedAt
 }
 
 model OrderItem {
