@@ -1,12 +1,11 @@
-import { Suspense } from "react";
 import type { Metadata } from "next";
 import { Leaf, Timer, Truck } from "lucide-react";
 
 import { MenuBrowser } from "@/components/menu/menu-browser";
 import { Reveal } from "@/components/motion";
 import { JsonLd } from "@/components/seo/json-ld";
-import { Skeleton } from "@/components/ui/form-controls";
 import { categories, menuItems } from "@/data/menu";
+import type { CategorySlug } from "@/types";
 import { siteConfig } from "@/config/site";
 import { breadcrumbSchema, buildMetadata } from "@/lib/seo";
 
@@ -62,7 +61,22 @@ const HIGHLIGHTS = [
   { icon: Truck, label: "Free above ₹349", detail: "Flat ₹29 below that" },
 ];
 
-export default function MenuPage() {
+/**
+ * Reading `searchParams` makes this route server-rendered per request rather
+ * than statically prerendered. That is the right trade: a category-filtered
+ * menu URL is a real landing page for long-tail search, and rendering 58 items
+ * on the server costs almost nothing.
+ */
+export default async function MenuPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ category?: string; q?: string }>;
+}) {
+  const params = await searchParams;
+  const category = (categories.find((entry) => entry.slug === params.category)?.slug ??
+    "all") as CategorySlug | "all";
+  const query = params.q ?? "";
+
   return (
     <>
       {/* ---- Page hero ---- */}
@@ -118,10 +132,9 @@ export default function MenuPage() {
       {/* ---- Browser ---- */}
       <section className="pb-24">
         <div className="container-page">
-          {/* useSearchParams requires a Suspense boundary during prerender. */}
-          <Suspense fallback={<MenuSkeleton />}>
-            <MenuBrowser />
-          </Suspense>
+          {/* Filters are resolved on the server so the dish grid ships in the
+              initial HTML — see the note in MenuBrowser. */}
+          <MenuBrowser initialCategory={category} initialQuery={query} />
         </div>
       </section>
 
@@ -138,20 +151,3 @@ export default function MenuPage() {
   );
 }
 
-function MenuSkeleton() {
-  return (
-    <div>
-      <Skeleton className="h-12 w-full rounded-xl" />
-      <div className="mt-3 flex gap-2 overflow-hidden">
-        {Array.from({ length: 8 }).map((_, index) => (
-          <Skeleton key={index} className="h-10 w-28 shrink-0 rounded-full" />
-        ))}
-      </div>
-      <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, index) => (
-          <Skeleton key={index} className="h-[26rem] rounded-3xl" />
-        ))}
-      </div>
-    </div>
-  );
-}

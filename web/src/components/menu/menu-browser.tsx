@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Flame, Leaf, Search, SlidersHorizontal, Sparkles, Star, X } from "lucide-react";
 
 import { DishCard } from "@/components/menu/dish-card";
@@ -54,18 +54,23 @@ const PRICE_BANDS = [
  *
  * The active category is mirrored into the URL so a filtered view is
  * shareable and the browser back button behaves as users expect.
+ *
+ * Initial filter state arrives as props from the server rather than through
+ * `useSearchParams`. That hook would opt the whole subtree out of server
+ * rendering, leaving crawlers and no-JS visitors with an empty skeleton on the
+ * single most important page for search — the dish grid must be in the HTML.
  */
-export function MenuBrowser() {
+export function MenuBrowser({
+  initialCategory = "all",
+  initialQuery = "",
+}: {
+  initialCategory?: CategorySlug | "all";
+  initialQuery?: string;
+}) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-
-  const initialCategory = searchParams.get("category") as CategorySlug | null;
-  const initialQuery = searchParams.get("q") ?? "";
 
   const [query, setQuery] = React.useState(initialQuery);
-  const [category, setCategory] = React.useState<CategorySlug | "all">(
-    initialCategory ?? "all",
-  );
+  const [category, setCategory] = React.useState<CategorySlug | "all">(initialCategory);
   const [sort, setSort] = React.useState<SortKey>("popular");
   const [priceBand, setPriceBand] = React.useState<(typeof PRICE_BANDS)[number]["id"]>("all");
   const [activeTags, setActiveTags] = React.useState<string[]>([]);
