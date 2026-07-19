@@ -1,8 +1,15 @@
+import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+
+  // Pin the workspace root. Without this Turbopack walks up the tree, finds an
+  // unrelated lockfile in a parent directory and infers the wrong root.
+  turbopack: {
+    root: path.join(__dirname),
+  },
 
   images: {
     // Modern formats first — AVIF typically saves 30-50% over JPEG at the same

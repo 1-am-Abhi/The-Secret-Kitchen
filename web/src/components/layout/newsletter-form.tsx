@@ -11,10 +11,7 @@ import { cn } from "@/lib/utils";
 import { subscribeToNewsletter } from "@/lib/api";
 
 const schema = z.object({
-  email: z
-    .string()
-    .min(1, "Please enter your email")
-    .email("That does not look like a valid email"),
+  email: z.email("That does not look like a valid email"),
 });
 
 type FormValues = z.infer<typeof schema>;

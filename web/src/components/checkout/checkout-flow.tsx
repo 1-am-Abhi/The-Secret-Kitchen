@@ -1,0 +1,641 @@
+"use client";
+
+import * as React from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Banknote,
+  Briefcase,
+  Check,
+  CreditCard,
+  Home,
+  Landmark,
+  Loader2,
+  Lock,
+  MapPin,
+  Smartphone,
+  User,
+  Wallet,
+} from "lucide-react";
+import { toast } from "sonner";
+
+import { BillBreakdown } from "@/components/cart/cart-view";
+import { motion } from "@/components/motion";
+import { Button } from "@/components/ui/button";
+import { FoodImage } from "@/components/ui/food-image";
+import { Checkbox, Separator } from "@/components/ui/form-controls";
+import { Input, Textarea } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { siteConfig } from "@/config/site";
+import { placeOrder } from "@/lib/api";
+import { CHECKOUT_STEP_FIELDS, checkoutSchema, type CheckoutValues } from "@/lib/validation";
+import { cn, formatPrice } from "@/lib/utils";
+import { lineKey, selectTotals, useCartStore } from "@/store/cart-store";
+
+const STEPS = [
+  { id: 1, title: "Contact", description: "Who is this order for", icon: User },
+  { id: 2, title: "Address", description: "Where should it go", icon: MapPin },
+  { id: 3, title: "Payment", description: "When and how to pay", icon: CreditCard },
+] as const;
+
+const PAYMENT_METHODS = [
+  { id: "upi", label: "UPI", detail: "GPay, PhonePe, Paytm", icon: Smartphone },
+  { id: "card", label: "Card", detail: "Credit or debit", icon: CreditCard },
+  { id: "netbanking", label: "Net Banking", detail: "All major banks", icon: Landmark },
+  { id: "wallet", label: "Wallet", detail: "Paytm, Amazon Pay", icon: Wallet },
+  { id: "cod", label: "Cash on Delivery", detail: "Pay the rider", icon: Banknote },
+] as const;
+
+const DELIVERY_SLOTS = [
+  { id: "asap", label: "As soon as possible", detail: "~32 minutes" },
+  { id: "lunch", label: "Lunch slot", detail: "12:00 – 1:30 PM" },
+  { id: "dinner", label: "Dinner slot", detail: "7:30 – 9:00 PM" },
+] as const;
+
+const ADDRESS_TYPES = [
+  { id: "home", label: "Home", icon: Home },
+  { id: "work", label: "Work", icon: Briefcase },
+  { id: "other", label: "Other", icon: MapPin },
+] as const;
+
+/**
+ * Three-step checkout.
+ *
+ * A wizard rather than one long form: on mobile a 14-field checkout reads as
+ * insurmountable, and validating step by step means an error surfaces next to
+ * the field that caused it instead of after a full-page submit.
+ */
+export function CheckoutFlow() {
+  const router = useRouter();
+  const [mounted, setMounted] = React.useState(false);
+  const [step, setStep] = React.useState<1 | 2 | 3>(1);
+
+  const lines = useCartStore((state) => state.lines);
+  const couponCode = useCartStore((state) => state.couponCode);
+  const clearCart = useCartStore((state) => state.clearCart);
+
+  React.useEffect(() => setMounted(true), []);
+
+  const totals = selectTotals(lines, couponCode);
+
+  const form = useForm<CheckoutValues>({
+    resolver: zodResolver(checkoutSchema),
+    mode: "onTouched",
+    defaultValues: {
+      name: "",
+      phone: "",
+      email: "",
+      addressLine1: "",
+      addressLine2: "",
+      landmark: "",
+      city: siteConfig.address.city,
+      pincode: "",
+      addressType: "home",
+      deliverySlot: "asap",
+      paymentMethod: "upi",
+      instructions: "",
+      contactlessDelivery: false,
+    },
+  });
+
+  const {
+    register,
+    handleSubmit,
+    trigger,
+    watch,
+    setValue,
+    formState: { errors, isSubmitting },
+  } = form;
+
+  const goNext = async () => {
+    // Validate only this step's fields so a later empty field cannot block
+    // progress through an earlier, correctly-filled step.
+    const valid = await trigger([...CHECKOUT_STEP_FIELDS[step]]);
+    if (!valid) return;
+    setStep((current) => (current < 3 ? ((current + 1) as 2 | 3) : current));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const goBack = () => {
+    setStep((current) => (current > 1 ? ((current - 1) as 1 | 2) : current));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const onSubmit = async (values: CheckoutValues) => {
+    try {
+      const response = await placeOrder({
+        customer: { name: values.name, phone: values.phone, email: values.email },
+        address: {
+          line1: values.addressLine1,
+          line2: values.addressLine2,
+          landmark: values.landmark,
+          city: values.city,
+          pincode: values.pincode,
+          type: values.addressType,
+        },
+        deliverySlot: values.deliverySlot,
+        paymentMethod: values.paymentMethod,
+        instructions: values.instructions,
+        contactlessDelivery: values.contactlessDelivery,
+        items: lines,
+        totals,
+        couponCode,
+      });
+
+      // Order number is generated by the API; fall back to a local reference
+      // when running without a backend so the confirmation page still works.
+      const orderId =
+        (response as { orderId?: string }).orderId ??
+        `TSK${Date.now().toString().slice(-8)}`;
+
+      clearCart();
+      router.push(`/checkout/success?order=${orderId}`);
+    } catch {
+      toast.error("We couldn't place that order", {
+        description: "Please try again, or call the kitchen and we'll take it over the phone.",
+      });
+    }
+  };
+
+  if (!mounted) return <div className="shimmer h-96 rounded-3xl" />;
+
+  if (lines.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-5 rounded-3xl border border-dashed border-ink-300 bg-ink-50/50 px-8 py-20 text-center">
+        <p className="font-display text-2xl text-ink-900">Nothing to check out</p>
+        <p className="max-w-sm text-sm text-ink-500">
+          Your cart is empty. Add a dish or two and come back.
+        </p>
+        <Button asChild size="lg">
+          <Link href="/menu">Browse the menu</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-8 lg:grid-cols-12 lg:gap-10">
+      <div className="lg:col-span-7 xl:col-span-8">
+        {/* ---- Step indicator ---- */}
+        <ol className="flex items-center gap-2" aria-label="Checkout progress">
+          {STEPS.map((entry, index) => {
+            const state = step === entry.id ? "current" : step > entry.id ? "done" : "todo";
+            return (
+              <li key={entry.id} className="flex flex-1 items-center gap-2">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span
+                    aria-current={state === "current" ? "step" : undefined}
+                    className={cn(
+                      "flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold transition-colors",
+                      state === "done" && "bg-fresh-500 text-white",
+                      state === "current" && "bg-brand-500 text-white shadow-[var(--shadow-glow)]",
+                      state === "todo" && "bg-ink-100 text-ink-400",
+                    )}
+                  >
+                    {state === "done" ? <Check className="size-4" strokeWidth={3} /> : entry.id}
+                  </span>
+                  <span className="hidden min-w-0 sm:block">
+                    <span
+                      className={cn(
+                        "block truncate text-sm font-semibold",
+                        state === "todo" ? "text-ink-400" : "text-ink-900",
+                      )}
+                    >
+                      {entry.title}
+                    </span>
+                    <span className="block truncate text-[11px] text-ink-400">
+                      {entry.description}
+                    </span>
+                  </span>
+                </div>
+                {index < STEPS.length - 1 && (
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "h-px flex-1 transition-colors",
+                      step > entry.id ? "bg-fresh-400" : "bg-ink-200",
+                    )}
+                  />
+                )}
+              </li>
+            );
+          })}
+        </ol>
+
+        {/* ---- Form ---- */}
+        <form onSubmit={handleSubmit(onSubmit)} noValidate className="mt-8">
+          <motion.div
+            key={step}
+            initial={{ opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+            className="rounded-3xl border border-ink-200/70 bg-white p-6 shadow-soft sm:p-8"
+          >
+            {/* ---- Step 1: contact ---- */}
+            {step === 1 && (
+              <fieldset>
+                <legend className="font-display text-2xl text-ink-900">
+                  Who is this order for?
+                </legend>
+                <p className="mt-2 text-sm text-ink-500">
+                  We only use this to deliver your food and send order updates.
+                </p>
+
+                <div className="mt-7 grid gap-5">
+                  <Field
+                    id="name"
+                    label="Full name"
+                    error={errors.name?.message}
+                    required
+                  >
+                    <Input
+                      id="name"
+                      autoComplete="name"
+                      placeholder="Ananya Sharma"
+                      aria-invalid={Boolean(errors.name)}
+                      {...register("name")}
+                    />
+                  </Field>
+
+                  <Field
+                    id="phone"
+                    label="Mobile number"
+                    hint="The rider will call this number"
+                    error={errors.phone?.message}
+                    required
+                  >
+                    <div className="flex">
+                      <span className="flex h-12 items-center rounded-l-xl border border-r-0 border-ink-200 bg-ink-50 px-3.5 text-sm text-ink-500">
+                        +91
+                      </span>
+                      <Input
+                        id="phone"
+                        type="tel"
+                        inputMode="numeric"
+                        autoComplete="tel"
+                        placeholder="98765 43210"
+                        aria-invalid={Boolean(errors.phone)}
+                        className="rounded-l-none"
+                        {...register("phone")}
+                      />
+                    </div>
+                  </Field>
+
+                  <Field
+                    id="email"
+                    label="Email"
+                    hint="Optional — for your receipt"
+                    error={errors.email?.message}
+                  >
+                    <Input
+                      id="email"
+                      type="email"
+                      autoComplete="email"
+                      placeholder="you@example.com"
+                      aria-invalid={Boolean(errors.email)}
+                      {...register("email")}
+                    />
+                  </Field>
+                </div>
+              </fieldset>
+            )}
+
+            {/* ---- Step 2: address ---- */}
+            {step === 2 && (
+              <fieldset>
+                <legend className="font-display text-2xl text-ink-900">
+                  Where should we deliver?
+                </legend>
+                <p className="mt-2 text-sm text-ink-500">
+                  We deliver across Noida sectors 58–63 and parts of Ghaziabad.
+                </p>
+
+                <div className="mt-7 grid gap-5">
+                  <Field
+                    id="addressLine1"
+                    label="Flat / House / Building"
+                    error={errors.addressLine1?.message}
+                    required
+                  >
+                    <Input
+                      id="addressLine1"
+                      autoComplete="address-line1"
+                      placeholder="B-402, Sunrise Residency"
+                      aria-invalid={Boolean(errors.addressLine1)}
+                      {...register("addressLine1")}
+                    />
+                  </Field>
+
+                  <Field id="addressLine2" label="Street / Sector" error={errors.addressLine2?.message}>
+                    <Input
+                      id="addressLine2"
+                      autoComplete="address-line2"
+                      placeholder="Sector 62"
+                      {...register("addressLine2")}
+                    />
+                  </Field>
+
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <Field id="city" label="City" error={errors.city?.message} required>
+                      <Input
+                        id="city"
+                        autoComplete="address-level2"
+                        aria-invalid={Boolean(errors.city)}
+                        {...register("city")}
+                      />
+                    </Field>
+
+                    <Field id="pincode" label="Pincode" error={errors.pincode?.message} required>
+                      <Input
+                        id="pincode"
+                        inputMode="numeric"
+                        maxLength={6}
+                        autoComplete="postal-code"
+                        placeholder="201309"
+                        aria-invalid={Boolean(errors.pincode)}
+                        {...register("pincode")}
+                      />
+                    </Field>
+                  </div>
+
+                  <Field
+                    id="landmark"
+                    label="Landmark"
+                    hint="Optional — helps the rider find you faster"
+                    error={errors.landmark?.message}
+                  >
+                    <Input
+                      id="landmark"
+                      placeholder="Opposite Fortis Hospital"
+                      {...register("landmark")}
+                    />
+                  </Field>
+
+                  <fieldset>
+                    <legend className="text-sm font-medium text-ink-700">
+                      Save this address as
+                    </legend>
+                    <div className="mt-3 flex gap-2">
+                      {ADDRESS_TYPES.map(({ id, label, icon: Icon }) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setValue("addressType", id)}
+                          aria-pressed={watch("addressType") === id}
+                          className={cn(
+                            "flex flex-1 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-medium transition-all",
+                            watch("addressType") === id
+                              ? "border-brand-500 bg-brand-50 text-brand-700"
+                              : "border-ink-200 text-ink-600 hover:border-ink-300",
+                          )}
+                        >
+                          <Icon className="size-4" />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
+                </div>
+              </fieldset>
+            )}
+
+            {/* ---- Step 3: payment ---- */}
+            {step === 3 && (
+              <fieldset>
+                <legend className="font-display text-2xl text-ink-900">
+                  When and how would you like to pay?
+                </legend>
+                <p className="mt-2 text-sm text-ink-500">
+                  Nothing is cooked until this is confirmed.
+                </p>
+
+                <div className="mt-7">
+                  <p className="text-sm font-medium text-ink-700">Delivery slot</p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    {DELIVERY_SLOTS.map((slot) => (
+                      <button
+                        key={slot.id}
+                        type="button"
+                        onClick={() => setValue("deliverySlot", slot.id)}
+                        aria-pressed={watch("deliverySlot") === slot.id}
+                        className={cn(
+                          "rounded-2xl border p-4 text-left transition-all",
+                          watch("deliverySlot") === slot.id
+                            ? "border-brand-500 bg-brand-50"
+                            : "border-ink-200 hover:border-ink-300",
+                        )}
+                      >
+                        <span className="block text-sm font-semibold text-ink-900">
+                          {slot.label}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-ink-500">
+                          {slot.detail}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <Separator className="my-7" />
+
+                <div>
+                  <p className="text-sm font-medium text-ink-700">Payment method</p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {PAYMENT_METHODS.map(({ id, label, detail, icon: Icon }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setValue("paymentMethod", id)}
+                        aria-pressed={watch("paymentMethod") === id}
+                        className={cn(
+                          "flex items-center gap-3 rounded-2xl border p-4 text-left transition-all",
+                          watch("paymentMethod") === id
+                            ? "border-brand-500 bg-brand-50"
+                            : "border-ink-200 hover:border-ink-300",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "flex size-10 shrink-0 items-center justify-center rounded-xl",
+                            watch("paymentMethod") === id
+                              ? "bg-brand-500 text-white"
+                              : "bg-ink-100 text-ink-500",
+                          )}
+                        >
+                          <Icon className="size-5" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold text-ink-900">
+                            {label}
+                          </span>
+                          <span className="block truncate text-xs text-ink-500">
+                            {detail}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <Separator className="my-7" />
+
+                <Field
+                  id="instructions"
+                  label="Delivery instructions"
+                  hint="Optional"
+                  error={errors.instructions?.message}
+                >
+                  <Textarea
+                    id="instructions"
+                    placeholder="Ring the bell twice, or leave at the door…"
+                    maxLength={300}
+                    {...register("instructions")}
+                  />
+                </Field>
+
+                <label className="mt-5 flex cursor-pointer items-center gap-3 rounded-2xl border border-ink-200 p-4">
+                  <Checkbox
+                    checked={watch("contactlessDelivery")}
+                    onCheckedChange={(checked) =>
+                      setValue("contactlessDelivery", checked === true)
+                    }
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-ink-800">
+                      Contactless delivery
+                    </span>
+                    <span className="block text-xs text-ink-500">
+                      The rider will leave your order at the door and step back.
+                    </span>
+                  </span>
+                </label>
+              </fieldset>
+            )}
+          </motion.div>
+
+          {/* ---- Navigation ---- */}
+          <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+            {step > 1 ? (
+              <Button type="button" variant="outline" size="lg" onClick={goBack}>
+                <ArrowLeft />
+                Back
+              </Button>
+            ) : (
+              <Button asChild variant="ghost" size="lg">
+                <Link href="/cart">
+                  <ArrowLeft />
+                  Back to cart
+                </Link>
+              </Button>
+            )}
+
+            {step < 3 ? (
+              <Button type="button" size="lg" onClick={goNext}>
+                Continue
+                <ArrowRight />
+              </Button>
+            ) : (
+              <Button type="submit" size="lg" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Placing order…
+                  </>
+                ) : (
+                  <>
+                    <Lock />
+                    Place order · {formatPrice(totals.total)}
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        </form>
+      </div>
+
+      {/* ---- Order summary ---- */}
+      <aside className="lg:col-span-5 xl:col-span-4">
+        <div className="sticky top-28 rounded-3xl border border-ink-200/70 bg-white p-6 shadow-lift">
+          <h2 className="font-display text-xl text-ink-900">Order summary</h2>
+
+          <ul className="mt-5 flex max-h-72 flex-col gap-3 overflow-y-auto pr-1">
+            {lines.map((line) => (
+              <li key={lineKey(line)} className="flex items-center gap-3">
+                <div className="relative size-14 shrink-0 overflow-hidden rounded-xl bg-ink-100">
+                  <FoodImage imageId={line.imageId} alt={line.name} sizes="56px" />
+                  <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-ink-900 text-[10px] font-bold text-white">
+                    {line.quantity}
+                  </span>
+                </div>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-ink-800">
+                    {line.name}
+                  </span>
+                  {"componentLabels" in line && (
+                    <span className="block truncate text-[11px] text-ink-400">
+                      {line.componentLabels.join(" · ")}
+                    </span>
+                  )}
+                </span>
+                <span className="shrink-0 text-sm font-semibold text-ink-900">
+                  {formatPrice((line.price + (line.addOnTotal ?? 0)) * line.quantity)}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          <BillBreakdown totals={totals} couponCode={couponCode} />
+
+          <p className="mt-5 flex items-start gap-2 rounded-xl bg-ink-50 px-4 py-3 text-xs text-ink-500">
+            <Lock className="mt-0.5 size-3.5 shrink-0" />
+            Payments are processed over an encrypted connection. We never store
+            your card details.
+          </p>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+/** Consistent label + hint + error wrapper for every field. */
+function Field({
+  id,
+  label,
+  hint,
+  error,
+  required,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  error?: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <Label htmlFor={id}>
+          {label}
+          {required && (
+            <span className="ml-0.5 text-destructive" aria-hidden>
+              *
+            </span>
+          )}
+        </Label>
+        {hint && <span className="text-xs text-ink-400">{hint}</span>}
+      </div>
+      <div className="mt-2">{children}</div>
+      {error && (
+        <p role="alert" className="mt-1.5 text-xs text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
