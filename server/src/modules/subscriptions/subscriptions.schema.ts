@@ -21,13 +21,29 @@ export const createSubscriptionSchema = z.object({
   customer: z.object({
     name: z.string().trim().min(2).max(80),
     phone: phoneSchema,
-    email: z.string().email().toLowerCase().trim().optional(),
+    email: z
+      .string()
+      .email()
+      .toLowerCase()
+      .trim()
+      .nullish()
+      .transform((v) => v || undefined),
   }),
   address: z.object({
     label: z.string().trim().max(40).default("Home"),
     line1: z.string().trim().min(3).max(160),
-    line2: z.string().trim().max(160).optional(),
-    landmark: z.string().trim().max(120).optional(),
+    line2: z
+      .string()
+      .trim()
+      .max(160)
+      .nullish()
+      .transform((v) => v || undefined),
+    landmark: z
+      .string()
+      .trim()
+      .max(120)
+      .nullish()
+      .transform((v) => v || undefined),
     city: z.string().trim().min(2).max(60).default("Noida"),
     state: z.string().trim().min(2).max(60).default("Uttar Pradesh"),
     pincode: pincodeSchema,
@@ -38,13 +54,18 @@ export const createSubscriptionSchema = z.object({
   /** Only honoured for CUSTOM cycles. */
   customMeals: z.number().int().min(1).max(120).optional(),
   startDate: z.coerce.date().optional(),
-  couponCode: z.string().trim().max(40).optional(),
+  couponCode: z.string().trim().max(40).nullish(),
   /**
    * Defaults to WHATSAPP because that is the live sign-up channel. It decides
    * whether the subscription starts PENDING (settled out of band) or ACTIVE.
    */
   paymentMethod: paymentMethodSchema.default("WHATSAPP"),
-  preferences: z.string().trim().max(500).optional(),
+  preferences: z
+    .string()
+    .trim()
+    .max(500)
+    .nullish()
+    .transform((v) => v || undefined),
 });
 
 export const subscriptionIdParamSchema = z.object({ id: z.string().trim().min(1) });

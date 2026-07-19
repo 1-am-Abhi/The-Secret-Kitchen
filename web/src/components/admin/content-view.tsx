@@ -273,10 +273,21 @@ function SectionEditor<K extends ContentKey>({
   const [saved, setSaved] = React.useState(false);
   const [clearing, setClearing] = React.useState(false);
 
+  /**
+   * A successful save re-reads the listing, which arrives back here as a new
+   * `block` — the same edit the operator just made. Without this the sync
+   * below would wipe the "Saved." confirmation in the same frame it appeared.
+   */
+  const justSaved = React.useRef(false);
+
   React.useEffect(() => {
     setDraft(initial);
     setPublished(block?.published ?? true);
     setErrors({});
+    if (justSaved.current) {
+      justSaved.current = false;
+      return;
+    }
     setSaved(false);
   }, [initial, block]);
 
@@ -302,6 +313,7 @@ function SectionEditor<K extends ContentKey>({
       setErrors(result.fieldErrors ?? { _: [result.message] });
       return;
     }
+    justSaved.current = true;
     setSaved(true);
     onChanged();
   }
