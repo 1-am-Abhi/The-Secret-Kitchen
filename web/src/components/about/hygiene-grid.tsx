@@ -3,7 +3,7 @@ import { ShieldCheck } from "lucide-react";
 import { Section, SectionHeading } from "@/components/layout/section";
 import { Stagger, StaggerItem } from "@/components/motion";
 import { hygienePractices } from "@/data/content";
-import { siteConfig } from "@/config/site";
+import { hasFssaiLicense, siteConfig } from "@/config/site";
 
 import { resolveIcon } from "./icons";
 
@@ -41,16 +41,20 @@ export function HygieneGrid() {
           })}
         </Stagger>
 
-        <div className="mt-10 flex flex-col items-start gap-4 rounded-3xl border border-white/10 bg-white/[0.04] p-6 sm:flex-row sm:items-center sm:gap-6">
-          <span className="inline-flex size-12 shrink-0 items-center justify-center rounded-2xl bg-fresh-500/15 text-fresh-400">
-            <ShieldCheck className="size-6" aria-hidden />
-          </span>
-          <p className="text-sm leading-relaxed text-ink-300">
-            <span className="font-semibold text-white">FSSAI licence no. {siteConfig.fssaiLicense}</span>{" "}
-            — displayed in our kitchen and printed on every bill. Ask us for the latest audit
-            report on WhatsApp and we will send it to you, unedited.
-          </p>
-        </div>
+        {hasFssaiLicense && (
+          <div className="mt-10 flex flex-col items-start gap-4 rounded-3xl border border-white/10 bg-white/[0.04] p-6 sm:flex-row sm:items-center sm:gap-6">
+            <span className="inline-flex size-12 shrink-0 items-center justify-center rounded-2xl bg-fresh-500/15 text-fresh-400">
+              <ShieldCheck className="size-6" aria-hidden />
+            </span>
+            <p className="text-sm leading-relaxed text-ink-300">
+              <span className="font-semibold text-white">
+                FSSAI licence no. {siteConfig.fssaiLicense}
+              </span>{" "}
+              — displayed in our kitchen and printed on every bill. Ask us for the latest audit
+              report on WhatsApp and we will send it to you, unedited.
+            </p>
+          </div>
+        )}
       </div>
     </Section>
   );

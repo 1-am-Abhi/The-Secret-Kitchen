@@ -40,6 +40,12 @@ const envSchema = z.object({
    */
   BUSINESS_WHATSAPP: z.string().min(10).default("919876543210"),
   BUSINESS_NAME: z.string().default("The Secret Kitchen"),
+  /**
+   * FSSAI licence number. Empty by default and deliberately not invented: the
+   * storefront omits the badge entirely rather than print a number that would
+   * be a false regulatory claim.
+   */
+  BUSINESS_FSSAI_LICENSE: z.string().default(""),
 
   ADMIN_EMAIL: z.string().email().default("admin@thesecretkitchen.in"),
   ADMIN_PASSWORD: z.string().min(8).default("ChangeMe@12345"),

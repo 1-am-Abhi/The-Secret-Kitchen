@@ -1,23 +1,50 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, CalendarHeart, Star, Timer, UtensilsCrossed } from "lucide-react";
+import { ArrowRight, CalendarHeart, Star, UtensilsCrossed } from "lucide-react";
 
 import { Floating, motion, Reveal } from "@/components/motion";
 import { Button } from "@/components/ui/button";
 import { VegMark } from "@/components/ui/badge";
 import { FoodImage } from "@/components/ui/food-image";
-import { siteConfig } from "@/config/site";
 import { trustBadges } from "@/data/content";
+import { tiffinPlans } from "@/data/tiffin";
+import type { SiteStats, StatsContent } from "@/lib/storefront-data";
+import { formatStat } from "@/lib/storefront-data";
+
+/** Cheapest advertised tiffin rate — read from the plan table, never typed in. */
+const lowestTiffinRate = Math.min(...tiffinPlans.map((plan) => plan.pricePerMeal.monthly));
+
+/** Default wording for the live figures when an admin has not chosen their own. */
+const DEFAULT_STAT_LABELS: Record<keyof SiteStats, string> = {
+  mealsServed: "Meals served",
+  ordersDelivered: "Orders delivered",
+  customersServed: "Customers served",
+  activeSubscribers: "Tiffin subscribers",
+  reviewCount: "Reviews",
+  averageRating: "Average rating",
+};
 
 /**
  * Home hero.
  *
  * Split layout: editorial type on the left, a tall food image on the right with
- * two floating glass cards that carry social proof. The right column collapses
- * beneath the copy on mobile so the headline and CTAs always land first.
+ * a floating glass card. The right column collapses beneath the copy on mobile
+ * so the headline and CTAs always land first.
+ *
+ * The social-proof row is driven entirely by `stats`, which the page reads from
+ * Postgres. A kitchen that has not served anyone yet shows no row at all —
+ * there is no launch-day placeholder to fall back to.
  */
-export function Hero() {
+export function Hero({
+  stats,
+  statsContent,
+}: {
+  stats: SiteStats | null;
+  statsContent: StatsContent | null;
+}) {
+  const heroStats = selectHeroStats(stats, statsContent);
+
   return (
     <section className="relative overflow-hidden bg-cream pt-32 pb-16 lg:pt-40 lg:pb-24">
       {/* Ambient brand wash — keeps the cream background from reading flat. */}
@@ -38,11 +65,16 @@ export function Hero() {
               <span className="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-white/70 px-4 py-2 text-xs font-semibold text-brand-700 backdrop-blur">
                 <VegMark className="size-3.5" />
                 100% Pure Veg Cloud Kitchen
-                <span className="h-3 w-px bg-brand-200" />
-                <span className="flex items-center gap-1 text-fresh-700">
-                  <Star className="size-3 fill-current" />
-                  {siteConfig.stats.rating}
-                </span>
+                {/* Only shown once real customers have actually rated us. */}
+                {stats?.averageRating !== null && stats?.averageRating !== undefined && (
+                  <>
+                    <span className="h-3 w-px bg-brand-200" />
+                    <span className="flex items-center gap-1 text-fresh-700">
+                      <Star className="size-3 fill-current" />
+                      {stats.averageRating.toFixed(1)}
+                    </span>
+                  </>
+                )}
               </span>
             </Reveal>
 
@@ -104,23 +136,21 @@ export function Hero() {
               </div>
             </Reveal>
 
-            {/* Social proof */}
-            <Reveal delay={0.32}>
-              <dl className="mt-11 grid grid-cols-3 gap-4 border-t border-ink-200/70 pt-7">
-                {[
-                  { value: siteConfig.stats.mealsServed, label: "Meals served" },
-                  { value: siteConfig.stats.tiffinSubscribers, label: "Tiffin subscribers" },
-                  { value: `${siteConfig.stats.rating}★`, label: `${siteConfig.stats.reviewCount} reviews` },
-                ].map((stat) => (
-                  <div key={stat.label}>
-                    <dt className="font-display text-2xl font-semibold text-ink-900 sm:text-3xl">
-                      {stat.value}
-                    </dt>
-                    <dd className="mt-1 text-xs text-ink-500">{stat.label}</dd>
-                  </div>
-                ))}
-              </dl>
-            </Reveal>
+            {/* Social proof — live figures only, hidden entirely when there are none. */}
+            {heroStats.length > 0 && (
+              <Reveal delay={0.32}>
+                <dl className="mt-11 grid grid-cols-3 gap-4 border-t border-ink-200/70 pt-7">
+                  {heroStats.map((stat) => (
+                    <div key={stat.label}>
+                      <dt className="font-display text-2xl font-semibold text-ink-900 sm:text-3xl">
+                        {stat.value}
+                      </dt>
+                      <dd className="mt-1 text-xs text-ink-500">{stat.label}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </Reveal>
+            )}
           </div>
 
           {/* ---- Imagery ---- */}
@@ -140,24 +170,6 @@ export function Hero() {
               <div className="absolute inset-0 bg-gradient-to-t from-ink-900/25 via-transparent to-transparent" />
             </motion.div>
 
-            {/* Floating: delivery time */}
-            <Floating
-              delay={0.4}
-              className="absolute -left-2 top-10 hidden sm:block lg:-left-10"
-            >
-              <div className="glass flex items-center gap-3 rounded-2xl px-4 py-3 shadow-lift">
-                <span className="flex size-10 items-center justify-center rounded-full bg-brand-500 text-white">
-                  <Timer className="size-5" />
-                </span>
-                <span className="flex flex-col leading-tight">
-                  <span className="font-display text-lg font-semibold text-ink-900">
-                    32 min
-                  </span>
-                  <span className="text-[11px] text-ink-500">Average delivery</span>
-                </span>
-              </div>
-            </Floating>
-
             {/* Floating: tiffin price */}
             <Floating
               delay={1.2}
@@ -170,7 +182,8 @@ export function Hero() {
                 </span>
                 <span className="flex flex-col leading-tight">
                   <span className="font-display text-lg font-semibold text-ink-900">
-                    ₹89<span className="text-sm font-normal text-ink-500">/meal</span>
+                    ₹{lowestTiffinRate}
+                    <span className="text-sm font-normal text-ink-500">/meal</span>
                   </span>
                   <span className="text-[11px] text-ink-500">Monthly tiffin from</span>
                 </span>
@@ -196,4 +209,37 @@ export function Hero() {
       </div>
     </section>
   );
+}
+
+/**
+ * Pairs the metrics an admin chose to show with their live values.
+ *
+ * A metric with no data yet (zero counts, or no rating because nobody has
+ * reviewed us) is dropped rather than rendered as "0" beside a boast — the row
+ * exists to state facts, and "we have served 0 meals" is not one worth making.
+ */
+function selectHeroStats(
+  stats: SiteStats | null,
+  content: StatsContent | null,
+): { value: string; label: string }[] {
+  if (!stats || content?.show === false) return [];
+
+  const chosen: { metric: keyof SiteStats; label: string }[] =
+    content?.items?.length
+      ? content.items
+      : [
+          { metric: "mealsServed", label: DEFAULT_STAT_LABELS.mealsServed },
+          { metric: "activeSubscribers", label: DEFAULT_STAT_LABELS.activeSubscribers },
+          { metric: "reviewCount", label: DEFAULT_STAT_LABELS.reviewCount },
+        ];
+
+  return chosen
+    .map(({ metric, label }) => {
+      const raw = stats[metric];
+      if (raw === null || raw === 0) return null;
+      const value = metric === "averageRating" ? `${raw.toFixed(1)}★` : formatStat(raw);
+      return { value, label: label || DEFAULT_STAT_LABELS[metric] };
+    })
+    .filter((entry): entry is { value: string; label: string } => entry !== null)
+    .slice(0, 3);
 }

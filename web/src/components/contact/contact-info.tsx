@@ -1,7 +1,7 @@
 import { Clock, Mail, MapPin, MessageCircle, Phone } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { fullAddress, siteConfig, telLink, whatsappLink } from "@/config/site";
+import { fullAddress, hasFssaiLicense, siteConfig, telLink, whatsappLink } from "@/config/site";
 
 /**
  * The info panel. Every value comes from siteConfig so a change of outlet or
@@ -123,7 +123,8 @@ export function ContactInfo() {
       </div>
 
       <p className="px-2 text-xs leading-relaxed text-ink-400">
-        {siteConfig.name} · FSSAI licence no. {siteConfig.fssaiLicense} · {fullAddress}
+        {siteConfig.name}
+        {hasFssaiLicense && ` · FSSAI licence no. ${siteConfig.fssaiLicense}`} · {fullAddress}
       </p>
     </div>
   );

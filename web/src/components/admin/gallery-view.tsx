@@ -1,31 +1,32 @@
 "use client";
 
 import * as React from "react";
-import { Check, CloudUpload, ImageOff, Pencil, Star, Trash2, X } from "lucide-react";
+import { Check, CloudUpload, ImageOff, Loader2, Pencil, Trash2, X } from "lucide-react";
 
+import { ApiErrorNotice, LoadingBlock, useAdminQuery } from "@/components/admin/admin-data";
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
 import { EmptyState } from "@/components/admin/empty-state";
 import { PageHeader } from "@/components/admin/page-header";
 import { FilterChips, SearchField, Toolbar, ToolbarSpacer } from "@/components/admin/toolbar";
-import { formatDay } from "@/components/admin/status-maps";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FoodImage } from "@/components/ui/food-image";
 import { Input } from "@/components/ui/input";
-import { mediaAssets, type MediaAsset } from "@/data/admin-mock";
+import {
+  GALLERY_CATEGORIES,
+  deleteAdminGalleryImage,
+  listAdminGallery,
+  updateAdminGalleryImage,
+  uploadAdminGalleryImage,
+  type AdminGalleryCategory,
+  type AdminGalleryImage,
+} from "@/lib/admin-orders";
 import { cn, distributeIntoColumns } from "@/lib/utils";
 
-type CategoryFilter = MediaAsset["category"] | "all";
+type CategoryFilter = AdminGalleryCategory | "all";
 
-const CATEGORY_FILTERS: CategoryFilter[] = [
-  "all",
-  "dishes",
-  "kitchen",
-  "team",
-  "packaging",
-  "moments",
-];
+const CATEGORY_FILTERS: CategoryFilter[] = ["all", ...GALLERY_CATEGORIES];
 
 const CATEGORY_LABEL: Record<CategoryFilter, string> = {
   all: "All media",
@@ -36,25 +37,26 @@ const CATEGORY_LABEL: Record<CategoryFilter, string> = {
   moments: "Moments",
 };
 
-const ASPECT_CLASS: Record<MediaAsset["aspect"], string> = {
+const ASPECT_CLASS: Record<AdminGalleryImage["aspect"], string> = {
   portrait: "aspect-[3/4]",
   landscape: "aspect-[4/3]",
   square: "aspect-square",
 };
 
-function formatBytes(bytes: number): string {
-  return bytes >= 1_048_576
-    ? `${(bytes / 1_048_576).toFixed(1)} MB`
-    : `${Math.round(bytes / 1024)} KB`;
-}
-
 export function GalleryView() {
-  const [assets, setAssets] = React.useState<MediaAsset[]>(mediaAssets);
   const [query, setQuery] = React.useState("");
   const [category, setCategory] = React.useState<CategoryFilter>("all");
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [deleteId, setDeleteId] = React.useState<string | null>(null);
   const [dragActive, setDragActive] = React.useState(false);
+  const [uploading, setUploading] = React.useState(false);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+
+  const load = React.useCallback((signal: AbortSignal) => listAdminGallery(signal), []);
+  const gallery = useAdminQuery(load);
+
+  const [assets, setAssets] = React.useState<AdminGalleryImage[]>([]);
+  React.useEffect(() => setAssets(gallery.data ?? []), [gallery.data]);
 
   const counts = React.useMemo(() => {
     const map = new Map<CategoryFilter, number>([["all", assets.length]]);
@@ -75,18 +77,54 @@ export function GalleryView() {
   // than leaving one column short.
   const columns = distributeIntoColumns(filtered, 3);
 
-  function updateCaption(id: string, caption: string) {
+  async function updateCaption(id: string, caption: string) {
+    const previous = assets;
+    setActionError(null);
     setAssets((current) =>
       current.map((asset) => (asset.id === id ? { ...asset, caption } : asset)),
     );
+
+    const result = await updateAdminGalleryImage(id, { caption });
+    if (!result.ok) {
+      setAssets(previous);
+      setActionError(`Could not save that caption — ${result.message}`);
+    }
   }
 
-  function toggleFeatured(id: string) {
-    setAssets((current) =>
-      current.map((asset) =>
-        asset.id === id ? { ...asset, featured: !asset.featured } : asset,
-      ),
-    );
+  async function remove(id: string) {
+    const previous = assets;
+    setActionError(null);
+    setAssets((current) => current.filter((asset) => asset.id !== id));
+
+    const result = await deleteAdminGalleryImage(id);
+    if (!result.ok) {
+      setAssets(previous);
+      setActionError(`Could not delete that photograph — ${result.message}`);
+    }
+  }
+
+  async function upload(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+
+    setActionError(null);
+    setUploading(true);
+    const result = await uploadAdminGalleryImage(file, {
+      // The operator renames it inline straight afterwards; the filename is a
+      // truthful starting point rather than an invented caption.
+      caption: file.name.replace(/\.[^.]+$/, ""),
+      category: category === "all" ? "dishes" : category,
+      aspect: "square",
+      sortOrder: assets.length,
+    });
+    setUploading(false);
+
+    if (result.ok) {
+      setAssets((current) => [result.data, ...current]);
+      setEditingId(result.data.id);
+      return;
+    }
+    setActionError(`Upload failed — ${result.message}`);
   }
 
   const deleteTarget = deleteId ? assets.find((asset) => asset.id === deleteId) : undefined;
@@ -99,6 +137,16 @@ export function GalleryView() {
         description="Every photograph the storefront can draw on. Uploads land in Cloudinary and are available to the gallery page immediately."
       />
 
+      {gallery.failure && <ApiErrorNotice failure={gallery.failure} onRetry={gallery.reload} />}
+
+      <div role="status" aria-live="polite">
+        {actionError && (
+          <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {actionError}
+          </p>
+        )}
+      </div>
+
       {/* ---- Upload dropzone --------------------------------------------- */}
       <div
         onDragOver={(event) => {
@@ -109,6 +157,7 @@ export function GalleryView() {
         onDrop={(event) => {
           event.preventDefault();
           setDragActive(false);
+          void upload(event.dataTransfer.files);
         }}
         className={cn(
           "rounded-3xl border-2 border-dashed p-8 text-center transition-colors duration-300",
@@ -118,29 +167,35 @@ export function GalleryView() {
         )}
       >
         <span className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
-          <CloudUpload className="size-6" aria-hidden />
+          {uploading ? (
+            <Loader2 className="size-6 animate-spin" aria-hidden />
+          ) : (
+            <CloudUpload className="size-6" aria-hidden />
+          )}
         </span>
-        <p className="font-display text-lg text-ink-900">Drop photographs here</p>
+        <p className="font-display text-lg text-ink-900">
+          {uploading ? "Uploading…" : "Drop photographs here"}
+        </p>
         <p className="mx-auto mt-1.5 max-w-md text-sm text-ink-500">
-          JPG, PNG or WebP up to 10 MB each. Shots are compressed and served through the image
-          CDN automatically — upload the highest resolution you have.
+          JPEG, PNG, WebP, AVIF or GIF up to 5 MB. Shots are compressed and served through the
+          image CDN automatically — upload the highest resolution you have.
         </p>
 
         <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-          <Button size="md" asChild>
+          <Button size="md" disabled={uploading} asChild>
             <label className="cursor-pointer">
-              Choose files
+              Choose a file
               <input
                 type="file"
                 accept="image/*"
-                multiple
                 className="sr-only"
-                aria-label="Upload gallery photographs"
+                aria-label="Upload a gallery photograph"
+                onChange={(event) => {
+                  void upload(event.target.files);
+                  event.target.value = "";
+                }}
               />
             </label>
-          </Button>
-          <Button variant="outline" size="md">
-            Import from Cloudinary
           </Button>
         </div>
       </div>
@@ -165,11 +220,21 @@ export function GalleryView() {
         />
       </Toolbar>
 
-      {filtered.length === 0 ? (
+      {gallery.loading && !gallery.data ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }, (_, index) => (
+            <LoadingBlock key={index} className="h-64" label="Loading the media library" />
+          ))}
+        </div>
+      ) : gallery.failure ? null : filtered.length === 0 ? (
         <EmptyState
           icon={ImageOff}
-          title="No media matches"
-          description="Try another category, or upload something new."
+          title={assets.length === 0 ? "The library is empty" : "No media matches"}
+          description={
+            assets.length === 0
+              ? "Nothing has been published to the gallery yet. Upload a photograph to start."
+              : "Try another category, or upload something new."
+          }
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -182,8 +247,7 @@ export function GalleryView() {
                   editing={editingId === asset.id}
                   onEdit={() => setEditingId(asset.id)}
                   onEditEnd={() => setEditingId(null)}
-                  onCaptionChange={(caption) => updateCaption(asset.id, caption)}
-                  onToggleFeatured={() => toggleFeatured(asset.id)}
+                  onCaptionChange={(caption) => void updateCaption(asset.id, caption)}
                   onDelete={() => setDeleteId(asset.id)}
                 />
               ))}
@@ -203,9 +267,7 @@ export function GalleryView() {
         }
         confirmLabel="Delete photo"
         icon={Trash2}
-        onConfirm={() =>
-          deleteId && setAssets((current) => current.filter((asset) => asset.id !== deleteId))
-        }
+        onConfirm={() => deleteId && void remove(deleteId)}
       />
     </div>
   );
@@ -217,15 +279,13 @@ function MediaCard({
   onEdit,
   onEditEnd,
   onCaptionChange,
-  onToggleFeatured,
   onDelete,
 }: {
-  asset: MediaAsset;
+  asset: AdminGalleryImage;
   editing: boolean;
   onEdit: () => void;
   onEditEnd: () => void;
   onCaptionChange: (caption: string) => void;
-  onToggleFeatured: () => void;
   onDelete: () => void;
 }) {
   const [draft, setDraft] = React.useState(asset.caption);
@@ -244,29 +304,7 @@ function MediaCard({
           className="transition-transform duration-700 ease-[var(--ease-out-expo)] group-hover:scale-105"
         />
 
-        {asset.featured && (
-          <span className="absolute left-3 top-3">
-            <Badge variant="bestseller" size="sm">
-              <Star className="size-3" aria-hidden />
-              Featured
-            </Badge>
-          </span>
-        )}
-
         <div className="absolute right-3 top-3 flex gap-1.5 opacity-0 transition-opacity duration-300 focus-within:opacity-100 group-hover:opacity-100">
-          <button
-            type="button"
-            onClick={onToggleFeatured}
-            aria-label={
-              asset.featured
-                ? `Remove ${asset.caption} from featured`
-                : `Feature ${asset.caption}`
-            }
-            aria-pressed={asset.featured}
-            className="flex size-8 items-center justify-center rounded-full bg-white/90 text-ink-700 shadow-soft backdrop-blur transition-colors hover:bg-white hover:text-brand-600"
-          >
-            <Star className={cn("size-3.5", asset.featured && "fill-brand-500 text-brand-500")} />
-          </button>
           <button
             type="button"
             onClick={onDelete}
@@ -341,9 +379,9 @@ function MediaCard({
           <Badge variant="muted" size="sm" className="capitalize">
             {asset.category}
           </Badge>
-          <span>{formatDay(asset.uploadedAt)}</span>
+          <span className="capitalize">{asset.aspect}</span>
           <span>·</span>
-          <span className="tabular-nums">{formatBytes(asset.sizeBytes)}</span>
+          <span className="tabular-nums">Position {asset.sortOrder + 1}</span>
         </div>
       </div>
     </Card>

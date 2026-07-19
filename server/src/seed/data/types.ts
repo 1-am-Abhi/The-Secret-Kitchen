@@ -81,18 +81,6 @@ export interface TiffinPlan {
   imageId: string;
 }
 
-export interface Review {
-  id: string;
-  name: string;
-  role: string;
-  location: string;
-  rating: number;
-  quote: string;
-  initials: string;
-  date: string;
-  verified: boolean;
-}
-
 export interface Offer {
   id: string;
   code: string;

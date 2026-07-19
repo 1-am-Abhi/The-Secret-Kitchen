@@ -175,10 +175,10 @@ model Category {
 }
 
 model MenuItem {
-  id          String  @id @default(cuid())
+  id          String @id @default(cuid())
   /// Stable business key carried over from the storefront catalogue (e.g. "mag-01").
-  code        String  @unique
-  slug        String  @unique
+  code        String @unique
+  slug        String @unique
   name        String
   description String
 
@@ -207,9 +207,9 @@ model MenuItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  addOns         AddOn[]
-  orderItems     OrderItem[]
-  dailySpecials  DailySpecial[]
+  addOns        AddOn[]
+  orderItems    OrderItem[]
+  dailySpecials DailySpecial[]
 
   @@index([categoryId])
   @@index([available])
@@ -235,17 +235,17 @@ model AddOn {
 
 /// A dish promoted as "Today's Special" for one calendar day.
 model DailySpecial {
-  id         String   @id @default(cuid())
+  id           String   @id @default(cuid())
   /// Midnight UTC of the day this special is published for.
-  date       DateTime @db.Date
-  menuItemId String
-  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  date         DateTime @db.Date
+  menuItemId   String
+  menuItem     MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   /// Optional promotional price for the day; falls back to the dish price.
   specialPrice Int?
-  headline   String?
-  sortOrder  Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  headline     String?
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([date, menuItemId])
   @@index([date])
@@ -272,7 +272,7 @@ model Customer {
 }
 
 model Address {
-  id         String  @id @default(cuid())
+  id         String   @id @default(cuid())
   customerId String
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
@@ -314,13 +314,13 @@ model Order {
 
   /// Address is denormalised onto the order so an edited or deleted address
   /// can never rewrite the delivery details of a historical order.
-  deliveryName    String
-  deliveryPhone   String
-  deliveryLine1   String
-  deliveryLine2   String?
+  deliveryName     String
+  deliveryPhone    String
+  deliveryLine1    String
+  deliveryLine2    String?
   deliveryLandmark String?
-  deliveryCity    String
-  deliveryPincode String
+  deliveryCity     String
+  deliveryPincode  String
 
   /// WhatsApp number, when it differs from the delivery phone.
   deliveryWhatsapp String?
@@ -349,12 +349,12 @@ model Order {
   gst          Int @default(0)
   total        Int
 
-  note          String?
-  scheduledFor  DateTime?
-  confirmedAt   DateTime?
-  deliveredAt   DateTime?
-  cancelledAt   DateTime?
-  cancelReason  String?
+  note         String?
+  scheduledFor DateTime?
+  confirmedAt  DateTime?
+  deliveredAt  DateTime?
+  cancelledAt  DateTime?
+  cancelReason String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -381,9 +381,9 @@ model OrderStatusEvent {
 
   status OrderStatus
   /// Optional operator note, e.g. a cancellation reason.
-  note String?
+  note   String?
   /// Who caused the transition — an admin email, or "system"/"customer".
-  actor String @default("system")
+  actor  String      @default("system")
 
   createdAt DateTime @default(now())
 
@@ -412,18 +412,18 @@ model OrderItem {
   menuItem   MenuItem? @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
 
   /// Name/price snapshotted at purchase time — menu edits must not rewrite history.
-  name       String
-  slug       String
-  unitPrice  Int
-  quantity   Int
-  addOnTotal Int      @default(0)
+  name            String
+  slug            String
+  unitPrice       Int
+  quantity        Int
+  addOnTotal      Int      @default(0)
   /// Chosen add-on labels, snapshotted for the kitchen docket.
-  addOnLabels String[]
+  addOnLabels     String[]
   /// Component labels when this line is a custom tiffin box.
   componentLabels String[]
-  isCustomTiffin  Boolean @default(false)
-  note       String?
-  lineTotal  Int
+  isCustomTiffin  Boolean  @default(false)
+  note            String?
+  lineTotal       Int
 
   createdAt DateTime @default(now())
 
@@ -465,9 +465,9 @@ model TiffinPlan {
 }
 
 model Subscription {
-  id     String @id @default(cuid())
+  id   String @id @default(cuid())
   /// Human-facing reference, e.g. "SUB-260719-9QX1".
-  code   String @unique
+  code String @unique
 
   customerId String
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
@@ -475,10 +475,10 @@ model Subscription {
   planId String
   plan   TiffinPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
 
-  addressId String?
-  address   Address? @relation(fields: [addressId], references: [id], onDelete: SetNull)
+  addressId    String?
+  address      Address? @relation(fields: [addressId], references: [id], onDelete: SetNull)
   /// Denormalised label so the dashboard can render without a join.
-  addressLabel String @default("Home")
+  addressLabel String   @default("Home")
 
   cycle  BillingCycle       @default(MONTHLY)
   slot   MealSlot           @default(LUNCH)
@@ -495,7 +495,7 @@ model Subscription {
   pricePerMeal   Int
   /// Amount invoiced for the current billing period, after any coupon.
   amount         Int
-  discount       Int    @default(0)
+  discount       Int     @default(0)
   couponCode     String?
 
   paymentMethod PaymentMethod @default(UPI)
@@ -562,17 +562,17 @@ model Offer {
 }
 
 model Review {
-  id        String   @id @default(cuid())
-  name      String
-  role      String
-  location  String
-  rating    Int
-  quote     String
-  initials  String
+  id         String   @id @default(cuid())
+  name       String
+  role       String
+  location   String
+  rating     Int
+  quote      String
+  initials   String
   reviewDate DateTime
-  verified  Boolean  @default(false)
-  published Boolean  @default(true)
-  featured  Boolean  @default(false)
+  verified   Boolean  @default(false)
+  published  Boolean  @default(true)
+  featured   Boolean  @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -658,4 +658,99 @@ model AdminUser {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+
+// ==========================================================================
+//    Outlets & delivery coverage
+// ==========================================================================
+
+/// A physical kitchen and the area it serves.
+///
+/// Outlets are data, not code: opening a second kitchen is an admin action, so
+/// nothing about a location — its address, its radius, its pincodes — may ever
+/// be hardcoded in the storefront again.
+model Outlet {
+  id         String  @id @default(cuid())
+  /// Stable human-readable key used in URLs and admin references.
+  slug       String  @unique
+  name       String
+  line1      String
+  line2      String?
+  city       String
+  state      String
+  postalCode String
+  country    String  @default("IN")
+
+  phone String?
+  email String?
+
+  /// Used by the maps embed and the LocalBusiness geo block. Optional because
+  /// an outlet is useful before anyone has looked up its coordinates.
+  latitude  Float?
+  longitude Float?
+
+  /// How far this kitchen will dispatch, and the headline promise shown to
+  /// customers. Both are operator-configurable per outlet.
+  deliveryRadiusKm Float?
+  deliveryMinutes  Int?
+
+  /// 24h "HH:MM". Rendered on the storefront and in structured data.
+  opensAt  String?
+  closesAt String?
+
+  /// Disabled outlets keep their history but disappear from the storefront.
+  active    Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deliveryAreas DeliveryArea[]
+
+  @@index([active, sortOrder])
+}
+
+/// One serviceable neighbourhood/pincode under an outlet.
+model DeliveryArea {
+  id       String @id @default(cuid())
+  outletId String
+  outlet   Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  name         String
+  pincode      String
+  /// Promised door-to-door time in minutes.
+  etaMinutes   Int
+  freeDelivery Boolean @default(false)
+  active       Boolean @default(true)
+  sortOrder    Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([outletId, name])
+  @@index([pincode])
+  @@index([active, sortOrder])
+}
+
+// ==========================================================================
+//    Editable storefront content
+// ==========================================================================
+
+/// Admin-authored homepage/about content, addressed by a stable key such as
+/// `home.hero` or `about.milestones`.
+///
+/// The payload is JSON because each block has its own shape and the set of
+/// blocks grows with the marketing site, not with the schema. Absent rows are
+/// the normal state: the storefront renders an empty state rather than
+/// inventing a default, which is the whole point of this table.
+model SiteContent {
+  key       String  @id
+  value     Json
+  published Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([published])
 }

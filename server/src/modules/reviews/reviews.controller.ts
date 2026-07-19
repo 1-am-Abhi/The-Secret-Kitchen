@@ -20,8 +20,12 @@ function deriveInitials(name: string): string {
 export const listReviews = asyncHandler(async (req: Request, res: Response) => {
   const query = req.query as unknown as ListReviewsQuery;
 
+  // Unmoderated submissions are only ever visible to the kitchen — a public
+  // caller cannot opt into them by flipping a query flag.
+  const adminView = query.includeUnpublished === "true" && Boolean(req.admin);
+
   const where: Prisma.ReviewWhereInput = {};
-  if (query.includeUnpublished !== "true") where.published = true;
+  if (!adminView) where.published = true;
   if (query.minRating) where.rating = { gte: query.minRating };
   if (query.featured) where.featured = query.featured === "true";
 
@@ -37,8 +41,17 @@ export const listReviews = asyncHandler(async (req: Request, res: Response) => {
     prisma.review.aggregate({ where: { published: true }, _avg: { rating: true }, _count: true }),
   ]);
 
+  // Moderation state is meaningless to a customer and essential to an admin.
+  const shape = adminView
+    ? (review: (typeof reviews)[number]) => ({
+        ...mapReview(review),
+        published: review.published,
+        featured: review.featured,
+      })
+    : mapReview;
+
   res.json({
-    ...paginated(reviews.map(mapReview), total, query),
+    ...paginated(reviews.map(shape), total, query),
     summary: {
       // One decimal place, matching the storefront's `averageRating`.
       average: Math.round((aggregate._avg.rating ?? 0) * 10) / 10,

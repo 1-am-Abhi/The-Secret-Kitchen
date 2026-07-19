@@ -13,8 +13,11 @@ import { newsletterRouter } from "../modules/newsletter/newsletter.routes";
 import { offersRouter } from "../modules/offers/offers.routes";
 import { adminOrdersRouter } from "../modules/orders/orders.admin.routes";
 import { ordersRouter } from "../modules/orders/orders.routes";
+import { outletsRouter } from "../modules/outlets/outlets.routes";
 import { reviewsRouter } from "../modules/reviews/reviews.routes";
+import { siteContentRouter } from "../modules/site-content/site-content.routes";
 import { specialsRouter } from "../modules/specials/specials.routes";
+import { statsRouter } from "../modules/stats/stats.routes";
 import {
   plansRouter,
   subscriptionsRouter,
@@ -55,4 +58,9 @@ apiRouter.use("/gallery", galleryRouter);
 apiRouter.use("/newsletter", newsletterRouter);
 apiRouter.use("/enquiries", enquiriesRouter);
 apiRouter.use("/analytics", analyticsRouter);
+apiRouter.use("/outlets", outletsRouter);
+apiRouter.use("/site-content", siteContentRouter);
+// Public, read-only, and computed entirely from the operational tables. The
+// storefront has no other source for a customer-facing number.
+apiRouter.use("/stats", statsRouter);
 apiRouter.use("/", contentRouter);

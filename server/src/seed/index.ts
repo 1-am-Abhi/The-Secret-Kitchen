@@ -22,7 +22,6 @@ import { faqs } from "./data/faq";
 import { galleryRows } from "./data/gallery";
 import { categories, menuItems } from "./data/menu";
 import { offers } from "./data/offers";
-import { reviews } from "./data/reviews";
 import { tiffinPlans } from "./data/tiffin";
 
 /**
@@ -229,35 +228,6 @@ async function seedOffers(): Promise<void> {
   }
 
   log(`offers: ${offers.length}`);
-}
-
-async function seedReviews(): Promise<void> {
-  for (const review of reviews) {
-    // Reviews have no natural unique key in the source data, so the quote's
-    // author + date pair stands in for one.
-    const existing = await prisma.review.findFirst({
-      where: { name: review.name, reviewDate: new Date(review.date) },
-      select: { id: true },
-    });
-
-    const data = {
-      name: review.name,
-      role: review.role,
-      location: review.location,
-      rating: review.rating,
-      quote: review.quote,
-      initials: review.initials,
-      reviewDate: new Date(review.date),
-      verified: review.verified,
-      published: true,
-      featured: review.rating === 5,
-    };
-
-    if (existing) await prisma.review.update({ where: { id: existing.id }, data });
-    else await prisma.review.create({ data });
-  }
-
-  log(`reviews: ${reviews.length}`);
 }
 
 async function seedFaqs(): Promise<void> {
@@ -592,7 +562,6 @@ export async function runSeed(): Promise<void> {
   const itemIds = await seedMenuItems(categoryIds);
   const planIds = await seedPlans();
   await seedOffers();
-  await seedReviews();
   await seedFaqs();
   await seedGallery();
   await seedAdmin();

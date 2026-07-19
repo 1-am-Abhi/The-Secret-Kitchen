@@ -1,24 +1,30 @@
 import { Section, SectionHeading } from "@/components/layout/section";
 import { Stagger, StaggerItem } from "@/components/motion";
-import { milestones } from "@/data/content";
+import { getContentBlock } from "@/lib/storefront-data";
 import { cn } from "@/lib/utils";
 
 /**
- * Milestone timeline.
+ * Milestone timeline — admin-authored.
+ *
+ * A milestone is a claim about something that happened on a date, so it cannot
+ * be a literal in the bundle. The kitchen records its own; with none recorded
+ * the section is absent rather than populated with a plausible history.
  *
  * One markup tree serves both breakpoints: below `lg` the rail sits on the left
  * of every entry, above `lg` entries alternate either side of a centre rail.
- * Rendering two separate trees would double the maintenance and duplicate the
- * content for screen readers.
  */
-export function Timeline() {
+export async function Timeline() {
+  const content = await getContentBlock("about.milestones");
+  const milestones = content?.items ?? [];
+  if (milestones.length === 0) return null;
+
   return (
     <Section>
       <div className="container-page">
         <SectionHeading
           eyebrow="How we got here"
-          title="Eighteen tiffins to twelve hundred subscribers"
-          description="No investors, no franchise playbook — just one more happy customer than the month before."
+          title="Our milestones"
+          description="The moments that changed how this kitchen works."
         />
 
         {/* role=list on a div: <Stagger> only renders div/ul/section, and a <ul>

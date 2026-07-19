@@ -10,7 +10,7 @@ import {
 } from "@/components/brand/social-icons";
 import { NewsletterForm } from "@/components/layout/newsletter-form";
 import { footerNav } from "@/config/navigation";
-import { fullAddress, siteConfig, telLink } from "@/config/site";
+import { fullAddress, hasFssaiLicense, siteConfig, telLink } from "@/config/site";
 
 const socialLinks = [
   { label: "Instagram", href: siteConfig.social.instagram, Icon: InstagramIcon },
@@ -123,12 +123,14 @@ export function Footer() {
               </li>
             </ul>
 
-            <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-white/5 px-3.5 py-2">
-              <BadgeCheck className="size-4 text-fresh-400" />
-              <span className="text-xs text-ink-400">
-                FSSAI Lic. {siteConfig.fssaiLicense}
-              </span>
-            </div>
+            {hasFssaiLicense && (
+              <div className="mt-6 inline-flex items-center gap-2 rounded-full bg-white/5 px-3.5 py-2">
+                <BadgeCheck className="size-4 text-fresh-400" />
+                <span className="text-xs text-ink-400">
+                  FSSAI Lic. {siteConfig.fssaiLicense}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 

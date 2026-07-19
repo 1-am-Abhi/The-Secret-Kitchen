@@ -15,7 +15,8 @@ import { WhyChooseUs } from "@/components/home/why-choose-us";
 import { JsonLd } from "@/components/seo/json-ld";
 import { siteConfig } from "@/config/site";
 import { getHomepageFaqs } from "@/data/faq";
-import { buildMetadata, faqSchema } from "@/lib/seo";
+import { buildMetadata, faqSchema, localBusinessSchema } from "@/lib/seo";
+import { getContentBlock, getPublishedReviews, getSiteStats } from "@/lib/storefront-data";
 
 export const metadata: Metadata = buildMetadata({
   title: `${siteConfig.name} — ${siteConfig.tagline}`,
@@ -27,14 +28,20 @@ export const metadata: Metadata = buildMetadata({
 /**
  * Home page.
  *
- * Composed of server components so the page streams as HTML; only the genuinely
- * interactive leaves (dish cards, pincode checker) ship JavaScript. Section
- * order follows the funnel: hook → prove → tempt → convert.
+ * Server component: the live figures are read here and passed down, so the
+ * interactive leaves stay client components without any of them fetching.
+ * Section order follows the funnel: hook → prove → tempt → convert.
  */
-export default function HomePage() {
+export default async function HomePage() {
+  const [stats, statsContent, reviewFeed] = await Promise.all([
+    getSiteStats(),
+    getContentBlock("home.stats"),
+    getPublishedReviews(12),
+  ]);
+
   return (
     <>
-      <Hero />
+      <Hero stats={stats} statsContent={statsContent} />
       <TodaysSpecial />
       <PopularCategories />
       <BestSellers />
@@ -48,6 +55,14 @@ export default function HomePage() {
       <FinalCta />
 
       {/* The condensed home FAQ is eligible for rich results on its own. */}
+      <JsonLd
+        data={localBusinessSchema(
+          reviewFeed.count > 0 && reviewFeed.average !== null
+            ? { value: reviewFeed.average, count: reviewFeed.count }
+            : null,
+        )}
+      />
+
       <JsonLd
         data={faqSchema(
           getHomepageFaqs().map(({ question, answer }) => ({ question, answer })),

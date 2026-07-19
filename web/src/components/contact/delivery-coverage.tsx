@@ -3,17 +3,31 @@ import { Bike, Truck } from "lucide-react";
 import { Section, SectionHeading } from "@/components/layout/section";
 import { Stagger, StaggerItem } from "@/components/motion";
 import { Badge } from "@/components/ui/badge";
-import { deliveryAreas } from "@/data/content";
 import { siteConfig } from "@/config/site";
+import { getDeliveryAreas } from "@/lib/storefront-data";
 import { cn, formatPrice } from "@/lib/utils";
 
-export function DeliveryCoverage() {
+/**
+ * Coverage grid.
+ *
+ * Zones are `DeliveryArea` rows attached to an outlet in the admin panel, so
+ * opening a new kitchen is a form submission rather than a code change. With
+ * nothing configured the section states that plainly instead of listing places
+ * we may not actually reach.
+ */
+export async function DeliveryCoverage() {
+  const deliveryAreas = await getDeliveryAreas();
+
   return (
     <Section>
       <div className="container-page">
         <SectionHeading
           eyebrow="Where we deliver"
-          title="Twelve neighbourhoods, hot food in every one"
+          title={
+            deliveryAreas.length > 0
+              ? `${deliveryAreas.length} ${deliveryAreas.length === 1 ? "neighbourhood" : "neighbourhoods"}, hot food in every one`
+              : "Delivery areas are being set up"
+          }
           description={`Free delivery above ${formatPrice(siteConfig.commerce.freeDeliveryAbove)} everywhere, and always free on tiffin subscriptions. Not on the list? Message us — we add sectors every quarter based on requests.`}
         />
 

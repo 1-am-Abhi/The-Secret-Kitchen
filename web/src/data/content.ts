@@ -1,9 +1,20 @@
-import type { DeliveryArea } from "@/types";
+import { hasFssaiLicense, siteConfig } from "@/config/site";
+import { tiffinPlans } from "@/data/tiffin";
 
 /**
- * Marketing and brand copy. Kept out of components so the same sentence is
- * never written twice and non-developers can edit wording in one place.
+ * Brand copy: the promises we make about how we cook, in one place so the same
+ * sentence is never written twice.
+ *
+ * What is deliberately NOT in this file: any claim about what has happened.
+ * Meals served, customers, ratings, review counts, delivery averages and
+ * milestones are facts recorded in Postgres — read them through
+ * `src/lib/storefront-data.ts`. The founder story, team and milestone timeline
+ * are admin-authored content blocks for the same reason. Nothing here may be a
+ * number about our history, because a file cannot know one.
  */
+
+/** Cheapest advertised tiffin rate, taken from the real plan table. */
+const LOWEST_TIFFIN_RATE = Math.min(...tiffinPlans.map((plan) => plan.pricePerMeal.monthly));
 
 /* ==========================================================================
    Why choose us
@@ -34,8 +45,8 @@ export const valueProps = [
     description:
       "Deep-cleaned twice a day, temperature-logged at every stage, and staff health checks every quarter. We publish our kitchen photos weekly.",
     icon: "ShieldCheck",
-    stat: "A+",
-    statLabel: "hygiene rating",
+    stat: "2×",
+    statLabel: "deep clean daily",
   },
   {
     id: "oil",
@@ -52,8 +63,8 @@ export const valueProps = [
     description:
       "Insulated thermal bags and a tight delivery radius mean your food arrives above 60°C. If it ever arrives cold, it is free.",
     icon: "Timer",
-    stat: "32 min",
-    statLabel: "average delivery",
+    stat: "<45 min",
+    statLabel: "delivery promise",
   },
   {
     id: "value",
@@ -61,7 +72,7 @@ export const valueProps = [
     description:
       "No surge pricing, no shrinking portions, no photo that looks nothing like what arrives. A tiffin starts at ₹89 and fills you up properly.",
     icon: "IndianRupee",
-    stat: "₹89",
+    stat: `₹${LOWEST_TIFFIN_RATE}`,
     statLabel: "meals from",
   },
 ];
@@ -75,7 +86,7 @@ export const howItWorks = [
     step: 1,
     title: "Pick your meal",
     description:
-      "Browse 55+ homestyle dishes or choose a monthly tiffin plan. Filter by category, spice level or protein if you are counting macros.",
+      "Browse the homestyle menu or choose a monthly tiffin plan. Filter by category, spice level or protein if you are counting macros.",
     icon: "UtensilsCrossed",
   },
   {
@@ -96,27 +107,16 @@ export const howItWorks = [
     step: 4,
     title: "Hot at your door",
     description:
-      "Sealed in insulated packaging and dispatched within our 6 km radius. Track it live and eat within 45 minutes of ordering.",
+      "Sealed in insulated packaging and dispatched from your nearest outlet. Track it live and eat within 45 minutes of ordering.",
     icon: "Bike",
   },
 ];
 
 /* ==========================================================================
-   About page
+   Standing commitments
+   These are policies we hold ourselves to, not measurements of what has
+   happened — which is why they can honestly live in source control.
    ========================================================================== */
-
-export const brandStory = {
-  eyebrow: "Our Story",
-  title: "It started with one hungry hostel floor",
-  paragraphs: [
-    "In 2019, Meenakshi Rawat was cooking dinner for her son and his four flatmates in a Sector 62 apartment. Word travelled down the hostel corridor, and within a month she was packing eighteen tiffins a night from a single domestic kitchen.",
-    "She never intended to start a restaurant. What she noticed was simpler and sadder: young people living away from home were eating food that filled them up but never actually nourished them. Reheated gravies, reused oil, portions that shrank whenever demand grew.",
-    "The Secret Kitchen exists to fix exactly that. We cook the way a mother cooks — measured oil, fresh vegetables bought that morning, dal that has actually been simmered rather than pressure-blasted. The only secret is that there is no secret. Just care, repeated daily.",
-    "Six years on we serve over 1,200 tiffin subscribers and deliver across Noida and Ghaziabad. Meenakshi still tastes the dal before every dinner dispatch.",
-  ],
-  signature: "Meenakshi Rawat",
-  signatureRole: "Founder & Head Chef",
-};
 
 export const missionVision = [
   {
@@ -203,93 +203,15 @@ export const ingredientPromises = [
   },
 ];
 
-export const chefTeam = [
-  {
-    name: "Meenakshi Rawat",
-    role: "Founder & Head Chef",
-    bio: "Started the kitchen from her own home in 2019. Specialises in the slow-cooked Punjabi gravies the menu is built around.",
-    experience: "25 years",
-    speciality: "North Indian gravies",
-    imageId: "team-1",
-    initials: "MR",
-  },
-  {
-    name: "Suresh Pillai",
-    role: "South Indian Chef",
-    bio: "Trained in Kochi and Chennai. Ferments our idli batter overnight and grinds the chutneys fresh every single morning.",
-    experience: "18 years",
-    speciality: "Idli, dosa & chutneys",
-    imageId: "team-2",
-    initials: "SP",
-  },
-  {
-    name: "Aarti Deshmukh",
-    role: "Continental & Chinese Chef",
-    bio: "Runs the pasta and Indo-Chinese section. Her pink sauce recipe took eleven attempts before it made the menu.",
-    experience: "12 years",
-    speciality: "Pasta & Indo-Chinese",
-    imageId: "team-3",
-    initials: "AD",
-  },
-  {
-    name: "Imran Qureshi",
-    role: "Kitchen Operations Lead",
-    bio: "Owns hygiene, sourcing and dispatch timing. Every temperature log and supplier invoice passes across his desk.",
-    experience: "15 years",
-    speciality: "Food safety & logistics",
-    imageId: "team-4",
-    initials: "IQ",
-  },
-];
-
-export const milestones = [
-  { year: "2019", title: "Eighteen tiffins a night", description: "Started from a home kitchen in Sector 62 with one cook and one scooter." },
-  { year: "2021", title: "First commercial kitchen", description: "Moved into a licensed 1,200 sq ft kitchen and crossed 200 daily orders." },
-  { year: "2023", title: "Tiffin subscriptions launch", description: "Introduced monthly plans with pause, skip and rollover — 400 subscribers in the first quarter." },
-  { year: "2024", title: "1,00,000 meals served", description: "Crossed a hundred thousand cumulative meals and expanded into Ghaziabad." },
-  { year: "2026", title: "1,200+ active subscribers", description: "Serving Noida and Ghaziabad daily with a 4.8 average rating across 2,100+ reviews." },
-];
-
-/* ==========================================================================
-   Delivery coverage
-   ========================================================================== */
-
-export const deliveryAreas: DeliveryArea[] = [
-  { name: "Sector 62, Noida", pincode: "201309", etaMinutes: 25, freeDelivery: true },
-  { name: "Sector 63, Noida", pincode: "201301", etaMinutes: 28, freeDelivery: true },
-  { name: "Sector 58, Noida", pincode: "201301", etaMinutes: 30, freeDelivery: true },
-  { name: "Sector 59, Noida", pincode: "201301", etaMinutes: 32, freeDelivery: true },
-  { name: "Sector 60, Noida", pincode: "201301", etaMinutes: 30, freeDelivery: true },
-  { name: "Sector 61, Noida", pincode: "201301", etaMinutes: 27, freeDelivery: true },
-  { name: "Sector 71, Noida", pincode: "201301", etaMinutes: 38, freeDelivery: false },
-  { name: "Noida Extension", pincode: "201306", etaMinutes: 42, freeDelivery: false },
-  { name: "Indirapuram", pincode: "201014", etaMinutes: 40, freeDelivery: false },
-  { name: "Vaishali", pincode: "201010", etaMinutes: 45, freeDelivery: false },
-  { name: "Vasundhara", pincode: "201012", etaMinutes: 44, freeDelivery: false },
-  { name: "Crossings Republik", pincode: "201016", etaMinutes: 48, freeDelivery: false },
-];
-
-/**
- * Pincode lookup for the coverage checker. Matches on pincode or on a
- * case-insensitive substring of the area name so "sector 62" also resolves.
- */
-export function findDeliveryArea(query: string): DeliveryArea | undefined {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return undefined;
-  return deliveryAreas.find(
-    (area) =>
-      area.pincode === needle || area.name.toLowerCase().includes(needle),
-  );
-}
-
 /* ==========================================================================
    Trust badges — the compact strip under the hero
    ========================================================================== */
 
 export const trustBadges = [
-  { label: "FSSAI Licensed", icon: "BadgeCheck" },
   { label: "100% Pure Veg", icon: "Leaf" },
-  { label: "Free Delivery Above ₹349", icon: "Truck" },
+  { label: `Free Delivery Above ₹${siteConfig.commerce.freeDeliveryAbove}`, icon: "Truck" },
   { label: "No Reused Oil", icon: "Droplets" },
   { label: "Cancel Anytime", icon: "CalendarCheck" },
+  // The FSSAI badge is appended only when a real licence number is configured.
+  ...(hasFssaiLicense ? [{ label: "FSSAI Licensed", icon: "BadgeCheck" }] : []),
 ];

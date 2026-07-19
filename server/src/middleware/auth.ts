@@ -78,6 +78,32 @@ export const requireAdmin: RequestHandler = asyncHandler(async (req, _res, next)
   next();
 });
 
+/**
+ * Best-effort authentication for routes that are public but richer for an
+ * admin — the outlet list and the content registry both hide disabled rows
+ * from customers and show them to the kitchen. A missing or bad token is not an
+ * error here, it simply leaves `req.admin` unset.
+ */
+export const attachAdmin: RequestHandler = asyncHandler(async (req, _res, next) => {
+  const token = readBearer(req.headers.authorization) ?? readQueryToken(req);
+  if (!token) return next();
+
+  try {
+    const decoded = jwt.verify(token, env.JWT_SECRET, { issuer: "the-secret-kitchen" });
+    if (typeof decoded === "string" || !decoded.sub) return next();
+
+    const admin = await prisma.adminUser.findUnique({
+      where: { id: decoded.sub },
+      select: { id: true, email: true, role: true, active: true },
+    });
+    if (admin?.active) req.admin = { sub: admin.id, email: admin.email, role: admin.role };
+  } catch {
+    // An expired or forged token gets the anonymous view, not a 401.
+  }
+
+  return next();
+});
+
 /** Route-level role gate, layered on top of `requireAdmin`. */
 export function requireRole(...roles: AdminRole[]): RequestHandler {
   return (req, _res, next) => {

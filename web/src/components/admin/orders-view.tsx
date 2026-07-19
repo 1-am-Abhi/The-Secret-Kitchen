@@ -16,11 +16,13 @@ import {
   Truck,
 } from "lucide-react";
 
+import { ApiErrorNotice } from "@/components/admin/admin-data";
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
 import { DataTable, type DataTableColumn } from "@/components/admin/data-table";
 import { EmptyState } from "@/components/admin/empty-state";
 import { useOrderNotifications } from "@/components/admin/order-notifications";
 import { PageHeader } from "@/components/admin/page-header";
+import { shiftDay, todayIso } from "@/components/admin/status-maps";
 import { StatusPill } from "@/components/admin/status-pill";
 import { FilterChips, SearchField, Toolbar, ToolbarSpacer } from "@/components/admin/toolbar";
 import { Badge } from "@/components/ui/badge";
@@ -37,15 +39,7 @@ import { Separator } from "@/components/ui/form-controls";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  TODAY,
-  adminOrders as mockAdminOrders,
-  shiftDate,
-  type AdminOrder as MockAdminOrder,
-  type OrderStatus as MockOrderStatus,
-} from "@/data/admin-mock";
-import {
   ALLOWED_TRANSITIONS,
-  ORDER_PIPELINE,
   ORDER_STATUSES,
   ORDER_STATUS_LABEL,
   ORDER_STATUS_SHORT_LABEL,
@@ -56,10 +50,10 @@ import {
   getAdminOrder,
   listAdminOrders,
   orderItemCount,
-  orderLocalDay,
   telUrl,
   updateAdminOrder,
   whatsappUrl,
+  type AdminFailure,
   type AdminOrder,
   type OrderStatus,
 } from "@/lib/admin-orders";
@@ -73,95 +67,10 @@ const STATUS_FILTERS: StatusFilter[] = ["all", ...ORDER_STATUSES];
 /** How many rows one request pulls. The table paginates within this window. */
 const PAGE_LIMIT = 100;
 
-type DataSource = "api" | "sample";
-
-/* ========================================================================== */
-/*  Sample-data adapter                                                       */
-/* ========================================================================== */
-
-const MOCK_STATUS_MAP: Record<MockOrderStatus, OrderStatus> = {
-  pending: "PENDING_CUSTOMER_CONFIRMATION",
-  confirmed: "CONFIRMED",
-  preparing: "PREPARING",
-  "out-for-delivery": "OUT_FOR_DELIVERY",
-  delivered: "DELIVERED",
-  cancelled: "CANCELLED",
-};
-
-/** Plausible timeline for a sample row — the real one comes from the API. */
-function sampleTimeline(status: OrderStatus, placedAt: string): AdminOrder["timeline"] {
-  const start = new Date(placedAt).getTime();
-  const stamp = (step: number) => new Date(start + step * 8 * 60_000).toISOString();
-
-  if (status === "CANCELLED") {
-    return [
-      { status: "PENDING_CUSTOMER_CONFIRMATION", at: stamp(0) },
-      { status: "CANCELLED", at: stamp(1), note: "Cancelled before the kitchen started." },
-    ];
-  }
-  const upTo = ORDER_PIPELINE.indexOf(status);
-  return ORDER_PIPELINE.slice(0, upTo + 1).map((entry, index) => ({
-    status: entry,
-    at: stamp(index),
-  }));
-}
-
-/**
- * Mock row → contract shape.
- *
- * The bundled mock predates the eight-status contract, so its six states are
- * widened here rather than in `@/data/admin-mock`, which other screens still
- * read as-is.
- */
-function toAdminOrder(mock: MockAdminOrder): AdminOrder {
-  const status = MOCK_STATUS_MAP[mock.status];
-  const placedAt = new Date(mock.placedAt).toISOString();
-
-  return {
-    id: mock.id,
-    orderNumber: mock.id,
-    status,
-    channel: mock.channel.toUpperCase(),
-    paymentMethod: mock.paymentMethod.toUpperCase(),
-    paymentStatus: mock.paymentStatus.toUpperCase(),
-    customerName: mock.customerName,
-    customerPhone: mock.phone,
-    placedAt,
-    items: mock.items.map((line) => ({
-      id: line.itemId,
-      name: line.name,
-      quantity: line.quantity,
-      unitPrice: line.unitPrice,
-      lineTotal: line.lineTotal,
-      addOnTotal: 0,
-      addOns: [],
-      components: [],
-      isCustomTiffin: false,
-    })),
-    bill: {
-      subtotal: mock.subtotal,
-      discount: mock.discount,
-      deliveryFee: mock.deliveryFee,
-      packagingFee: mock.packagingFee,
-      gst: mock.gst,
-      total: mock.total,
-      currency: "INR",
-    },
-    delivery: {
-      name: mock.customerName,
-      phone: mock.phone,
-      line1: mock.addressLine,
-      city: mock.area,
-      pincode: "",
-    },
-    timeline: sampleTimeline(status, placedAt),
-    kitchenNote: mock.note,
-    couponCode: mock.couponCode,
-    isSample: true,
-  };
-}
-
-const SAMPLE_ORDERS: AdminOrder[] = mockAdminOrders.map(toAdminOrder);
+/** Default span of the date filter: today and the six days before it. */
+const DEFAULT_RANGE_DAYS = 6;
+/** How far back "reset filters" widens to. */
+const RESET_RANGE_DAYS = 30;
 
 /* ========================================================================== */
 /*  View                                                                      */
@@ -171,8 +80,8 @@ export function OrdersView() {
   const { revision, focusedOrderNumber, clearFocusedOrder } = useOrderNotifications();
 
   const [orders, setOrders] = React.useState<AdminOrder[]>([]);
-  const [source, setSource] = React.useState<DataSource | null>(null);
-  const [offlineReason, setOfflineReason] = React.useState<string | null>(null);
+  const [loaded, setLoaded] = React.useState(false);
+  const [failure, setFailure] = React.useState<AdminFailure | null>(null);
   const [loading, setLoading] = React.useState(true);
   /** Announced politely — a failed status change must never be silent. */
   const [actionError, setActionError] = React.useState<string | null>(null);
@@ -180,39 +89,59 @@ export function OrdersView() {
 
   const [query, setQuery] = React.useState("");
   const [status, setStatus] = React.useState<StatusFilter>("all");
-  const [from, setFrom] = React.useState(shiftDate(TODAY, -6));
-  const [to, setTo] = React.useState(TODAY);
+  /**
+   * The date window is resolved on the client, after mount: "today" depends on
+   * the operator's timezone and a server render would pick the server's.
+   */
+  const [range, setRange] = React.useState<{ from: string; to: string } | null>(null);
+  const from = range?.from ?? "";
+  const to = range?.to ?? "";
 
   const [detailId, setDetailId] = React.useState<string | null>(null);
   const [cancelId, setCancelId] = React.useState<string | null>(null);
 
+  React.useEffect(() => {
+    const today = todayIso();
+    setRange({ from: shiftDay(today, -DEFAULT_RANGE_DAYS), to: today });
+  }, []);
+
   /* ---- Loading ----------------------------------------------------------- */
 
   /**
-   * Fetch the window, falling back to the bundled sample set.
+   * Fetch the window.
    *
    * The date range and the free-text search go to the server; the status filter
    * is applied on the client so the chip counts describe the same window the
    * table is showing rather than shifting under the operator on every click.
+   *
+   * A failure clears the table. There is no bundled fallback set: inventing
+   * orders for an operations screen is worse than showing nothing at all.
    */
   const load = React.useCallback(
     async (signal?: AbortSignal) => {
+      if (!range) return;
       setLoading(true);
-      const result = await listAdminOrders({ search: query, from, to, limit: PAGE_LIMIT, signal });
+      const result = await listAdminOrders({
+        search: query,
+        from: range.from,
+        to: range.to,
+        limit: PAGE_LIMIT,
+        signal,
+      });
       if (signal?.aborted) return;
 
       if (result.ok) {
         setOrders(result.orders);
-        setSource("api");
-        setOfflineReason(null);
+        setFailure(null);
+        setLoaded(true);
       } else if (result.reason !== "invalid") {
-        setOrders(SAMPLE_ORDERS);
-        setSource("sample");
-        setOfflineReason(result.message);
+        setOrders([]);
+        setFailure(result);
+        setLoaded(true);
       }
       setLoading(false);
     },
-    [from, query, to],
+    [query, range],
   );
 
   // Debounced so typing in the search box does not fire a request per keystroke.
@@ -248,30 +177,15 @@ export function OrdersView() {
     [orders],
   );
 
-  const filtered = React.useMemo(() => {
-    // Sample rows never went through the server, so the date/search filters have
-    // to be re-applied here for the offline view to behave the same way.
-    const needle = query.trim().toLowerCase();
-    const isSample = source === "sample";
-
-    return orders
-      .filter((order) => (status === "all" ? true : order.status === status))
-      .filter((order) => {
-        if (!isSample) return true;
-        const day = orderLocalDay(order.placedAt);
-        return day >= from && day <= to;
-      })
-      .filter((order) => {
-        if (!isSample || !needle) return true;
-        return (
-          order.orderNumber.toLowerCase().includes(needle) ||
-          order.customerName.toLowerCase().includes(needle) ||
-          order.customerPhone.replace(/\s/g, "").includes(needle.replace(/\s/g, "")) ||
-          order.delivery.city.toLowerCase().includes(needle)
-        );
-      })
-      .sort((a, b) => b.placedAt.localeCompare(a.placedAt));
-  }, [orders, status, from, to, query, source]);
+  // The server has already applied the date range and the search term; only the
+  // status chips are a client-side view over the fetched window.
+  const filtered = React.useMemo(
+    () =>
+      orders
+        .filter((order) => (status === "all" ? true : order.status === status))
+        .sort((a, b) => b.placedAt.localeCompare(a.placedAt)),
+    [orders, status],
+  );
 
   const detail = detailId ? (orders.find((order) => order.id === detailId) ?? null) : null;
 
@@ -307,12 +221,6 @@ export function OrdersView() {
     setPendingId(order.id);
     replaceOrder(order.id, (current) => ({ ...current, status: next }));
 
-    if (source === "sample") {
-      // Nothing to persist to; the banner already says this is sample data.
-      setPendingId(null);
-      return;
-    }
-
     const result = await updateAdminOrder(order.id, { status: next, cancelReason });
     setPendingId(null);
 
@@ -329,13 +237,13 @@ export function OrdersView() {
 
   /** Pull the authoritative detail (timeline, add-ons) when a ticket is opened. */
   React.useEffect(() => {
-    if (!detailId || source !== "api") return;
+    if (!detailId) return;
     const controller = new AbortController();
     void getAdminOrder(detailId, controller.signal).then((result) => {
       if (result.ok) replaceOrder(detailId, () => result.order);
     });
     return () => controller.abort();
-  }, [detailId, source]);
+  }, [detailId]);
 
   /* ---- Columns ----------------------------------------------------------- */
 
@@ -468,7 +376,7 @@ export function OrdersView() {
         }
       />
 
-      {source === "sample" && <SampleDataBanner reason={offlineReason} />}
+      {failure && <ApiErrorNotice failure={failure} onRetry={() => void load()} />}
 
       {/* Failed mutations are announced, not just coloured. */}
       <div role="status" aria-live="polite">
@@ -511,7 +419,9 @@ export function OrdersView() {
             type="date"
             value={from}
             max={to}
-            onChange={(event) => setFrom(event.target.value)}
+            onChange={(event) =>
+              setRange((current) => ({ from: event.target.value, to: current?.to ?? "" }))
+            }
             className="h-11 w-auto min-w-36"
           />
           <Label htmlFor="orders-to" className="text-xs text-ink-500">
@@ -522,7 +432,9 @@ export function OrdersView() {
             type="date"
             value={to}
             min={from}
-            onChange={(event) => setTo(event.target.value)}
+            onChange={(event) =>
+              setRange((current) => ({ from: current?.from ?? "", to: event.target.value }))
+            }
             className="h-11 w-auto min-w-36"
           />
         </div>
@@ -539,9 +451,9 @@ export function OrdersView() {
         }))}
       />
 
-      {loading && source === null ? (
+      {loading && !loaded ? (
         <OrdersSkeleton />
-      ) : (
+      ) : failure ? null : (
         <DataTable
           data={filtered}
           columns={columns}
@@ -552,16 +464,16 @@ export function OrdersView() {
           empty={
             <EmptyState
               icon={CircleSlash}
-              title="No orders match those filters"
-              description="Widen the date range or clear the search to see more tickets."
+              title="No orders in this window"
+              description="Nothing matches the current date range, search and status filter. Widen the range to look further back."
               action={
                 <Button
                   variant="outline"
                   onClick={() => {
+                    const today = todayIso();
                     setQuery("");
                     setStatus("all");
-                    setFrom(shiftDate(TODAY, -30));
-                    setTo(TODAY);
+                    setRange({ from: shiftDay(today, -RESET_RANGE_DAYS), to: today });
                   }}
                 >
                   Reset filters
@@ -628,24 +540,6 @@ export function OrdersView() {
 /* ========================================================================== */
 /*  Banners & callouts                                                        */
 /* ========================================================================== */
-
-function SampleDataBanner({ reason }: { reason: string | null }) {
-  return (
-    <div
-      role="status"
-      className="flex flex-col gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3.5 sm:flex-row sm:items-start sm:gap-3"
-    >
-      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
-      <div className="min-w-0 text-sm text-amber-900">
-        <p className="font-semibold">This is sample data — the orders API is not connected.</p>
-        <p className="mt-0.5 leading-relaxed text-amber-800">
-          Nothing on this screen reflects real orders, and status changes are not saved anywhere.
-          {reason ? ` (${reason})` : ""}
-        </p>
-      </div>
-    </div>
-  );
-}
 
 function AwaitingConfirmationCallout({
   count,
@@ -775,11 +669,6 @@ function OrderDetailDialog({
                 <Badge variant="muted" size="sm">
                   {order.channel}
                 </Badge>
-                {order.isSample && (
-                  <Badge variant="warning" size="sm">
-                    Sample
-                  </Badge>
-                )}
               </div>
               <DialogTitle>{order.customerName}</DialogTitle>
               <DialogDescription>

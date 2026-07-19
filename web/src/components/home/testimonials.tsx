@@ -1,20 +1,45 @@
-import { BadgeCheck, Quote, Star } from "lucide-react";
+import Link from "next/link";
+import { BadgeCheck, MessageSquarePlus, Quote, Star } from "lucide-react";
 
 import { Section, SectionHeading } from "@/components/layout/section";
 import { Marquee } from "@/components/motion";
-import { reviews } from "@/data/reviews";
-import { siteConfig } from "@/config/site";
+import { Button } from "@/components/ui/button";
+import { getPublishedReviews, type PublicReview } from "@/lib/storefront-data";
 import { cn } from "@/lib/utils";
-import type { Review } from "@/types";
 
 /**
- * Testimonials.
+ * Customer reviews.
  *
- * Two marquee rows drifting in opposite directions read as "lots of happy
- * customers" without forcing anyone to click through a carousel. Hovering
- * pauses the row so a review can actually be read.
+ * Every card here is a moderated row in Postgres written by a real customer.
+ * There is no sample set behind this component: until someone reviews us the
+ * section renders an invitation to be the first, which is the truthful version
+ * of social proof for a kitchen that does not have any yet.
  */
-export function Testimonials() {
+export async function Testimonials() {
+  const { reviews, average, count } = await getPublishedReviews(12);
+
+  if (reviews.length === 0) {
+    return (
+      <Section tone="muted">
+        <div className="container-page">
+          <SectionHeading
+            eyebrow="Customer reviews"
+            title="No customer reviews yet"
+            description="Be the first customer to review us — order a meal and tell us honestly how it was."
+          />
+          <div className="mt-10 flex justify-center">
+            <Button asChild size="lg">
+              <Link href="/menu">
+                <MessageSquarePlus />
+                Order and leave the first review
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </Section>
+    );
+  }
+
   const mid = Math.ceil(reviews.length / 2);
   const rowOne = reviews.slice(0, mid);
   const rowTwo = reviews.slice(mid);
@@ -24,8 +49,12 @@ export function Testimonials() {
       <div className="container-page">
         <SectionHeading
           eyebrow="Customer reviews"
-          title="8,500+ people let us cook for them"
-          description={`Rated ${siteConfig.stats.rating} out of 5 across ${siteConfig.stats.reviewCount.toLocaleString("en-IN")} verified reviews.`}
+          title="What our customers actually said"
+          description={
+            average === null
+              ? `${count.toLocaleString("en-IN")} verified ${count === 1 ? "review" : "reviews"} from real orders.`
+              : `Rated ${average} out of 5 across ${count.toLocaleString("en-IN")} verified ${count === 1 ? "review" : "reviews"}.`
+          }
         />
       </div>
 
@@ -36,18 +65,21 @@ export function Testimonials() {
           ))}
         </Marquee>
 
-        {/* Second row runs slower and starts offset so the two never align. */}
-        <Marquee speed={78} className="[direction:rtl]">
-          {rowTwo.map((review) => (
-            <ReviewCard key={review.id} review={review} className="mx-2.5 [direction:ltr]" />
-          ))}
-        </Marquee>
+        {/* Second row runs slower and starts offset so the two never align.
+            Skipped when there is only enough feedback to fill one row. */}
+        {rowTwo.length > 0 && (
+          <Marquee speed={78} className="[direction:rtl]">
+            {rowTwo.map((review) => (
+              <ReviewCard key={review.id} review={review} className="mx-2.5 [direction:ltr]" />
+            ))}
+          </Marquee>
+        )}
       </div>
     </Section>
   );
 }
 
-function ReviewCard({ review, className }: { review: Review; className?: string }) {
+function ReviewCard({ review, className }: { review: PublicReview; className?: string }) {
   return (
     <figure
       className={cn(
@@ -82,16 +114,21 @@ function ReviewCard({ review, className }: { review: Review; className?: string 
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
-            <span className="truncate text-sm font-semibold text-ink-900">
-              {review.name}
-            </span>
+            <span className="truncate text-sm font-semibold text-ink-900">{review.name}</span>
             {review.verified && (
-              <BadgeCheck className="size-3.5 shrink-0 text-fresh-500" aria-label="Verified order" />
+              <BadgeCheck
+                className="size-3.5 shrink-0 text-fresh-500"
+                aria-label="Verified order"
+              />
             )}
           </span>
-          <span className="block truncate text-xs text-ink-400">
-            {review.role} · {review.location}
-          </span>
+          {/* Role and location are optional on a submission; a missing one is
+              simply absent rather than filled in with something plausible. */}
+          {(review.role || review.location) && (
+            <span className="block truncate text-xs text-ink-400">
+              {[review.role, review.location].filter(Boolean).join(" · ")}
+            </span>
+          )}
         </span>
       </figcaption>
     </figure>

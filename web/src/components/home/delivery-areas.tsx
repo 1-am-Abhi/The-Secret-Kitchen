@@ -1,133 +1,85 @@
-"use client";
+import { MapPin } from "lucide-react";
 
-import * as React from "react";
-import { CheckCircle2, MapPin, Search, XCircle } from "lucide-react";
-
+import { CoverageChecker } from "@/components/home/coverage-checker";
 import { Section, SectionHeading } from "@/components/layout/section";
 import { Stagger, StaggerItem } from "@/components/motion";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { deliveryAreas, findDeliveryArea } from "@/data/content";
-import { whatsappLink } from "@/config/site";
+import { getContentBlock, getDeliveryAreas } from "@/lib/storefront-data";
 import { cn } from "@/lib/utils";
-import type { DeliveryArea } from "@/types";
-
-type LookupResult = { status: "idle" } | { status: "found"; area: DeliveryArea } | { status: "missing" };
 
 /**
- * Delivery coverage with a pincode checker.
+ * Delivery coverage.
  *
- * Answering "do you deliver to me?" before the customer has to browse the menu
- * removes the single biggest reason people bounce from a cloud kitchen site.
+ * Every zone shown here is a `DeliveryArea` row attached to an outlet an
+ * administrator created. Opening a new kitchen or adding a pincode is a form
+ * submission in the admin panel — this component holds no list of its own and
+ * says so plainly when nothing has been configured yet.
  */
-export function DeliveryAreas() {
-  const [query, setQuery] = React.useState("");
-  const [result, setResult] = React.useState<LookupResult>({ status: "idle" });
-
-  const handleCheck = (event: React.FormEvent) => {
-    event.preventDefault();
-    const area = findDeliveryArea(query);
-    setResult(area ? { status: "found", area } : { status: "missing" });
-  };
+export async function DeliveryAreas() {
+  const [areas, info] = await Promise.all([
+    getDeliveryAreas(),
+    getContentBlock("home.deliveryInfo"),
+  ]);
 
   return (
     <Section tone="default" id="delivery-areas">
       <div className="container-page">
         <SectionHeading
           eyebrow="Delivery areas"
-          title="We probably already deliver to you"
-          description="Twelve neighbourhoods across Noida and Ghaziabad, with more added every quarter."
+          title={info?.title || "Where we deliver"}
+          description={
+            info?.description ||
+            (areas.length > 0
+              ? `${areas.length} ${areas.length === 1 ? "neighbourhood" : "neighbourhoods"} currently served.`
+              : "Delivery areas have not been published yet — message us and we will tell you if we reach you.")
+          }
         />
 
-        {/* Pincode checker */}
-        <form
-          onSubmit={handleCheck}
-          className="mx-auto mt-10 flex max-w-xl flex-col gap-3 sm:flex-row"
-        >
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-ink-400" />
-            <label htmlFor="pincode-check" className="sr-only">
-              Enter your pincode or area
-            </label>
-            <Input
-              id="pincode-check"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setResult({ status: "idle" });
-              }}
-              placeholder="Enter your pincode or area name"
-              className="pl-11"
-            />
-          </div>
-          <Button type="submit" size="lg" disabled={!query.trim()}>
-            Check coverage
-          </Button>
-        </form>
+        <CoverageChecker />
 
-        {/* aria-live so screen readers announce the outcome */}
-        <div aria-live="polite" className="mx-auto mt-4 max-w-xl">
-          {result.status === "found" && (
-            <p className="flex items-center justify-center gap-2 rounded-2xl bg-fresh-50 px-5 py-4 text-sm text-fresh-700">
-              <CheckCircle2 className="size-4 shrink-0" />
-              Yes! We deliver to <strong>{result.area.name}</strong> in about{" "}
-              {result.area.etaMinutes} minutes.
-            </p>
-          )}
-          {result.status === "missing" && (
-            <p className="flex flex-col items-center gap-3 rounded-2xl bg-brand-50 px-5 py-4 text-center text-sm text-brand-700 sm:flex-row sm:justify-center">
-              <span className="flex items-center gap-2">
-                <XCircle className="size-4 shrink-0" />
-                Not there yet — but message us and we will see what we can do.
-              </span>
-              <a
-                href={whatsappLink(`Hi! Do you deliver to ${query}?`)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="shrink-0 font-semibold underline underline-offset-4"
-              >
-                Ask on WhatsApp
-              </a>
-            </p>
-          )}
-        </div>
+        {areas.length > 0 ? (
+          <Stagger
+            className="mt-12 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
+            stagger={0.05}
+          >
+            {areas.map((area) => (
+              <StaggerItem key={area.id}>
+                <div
+                  className={cn(
+                    "flex h-full flex-col gap-2 rounded-2xl border p-5 transition-colors",
+                    area.freeDelivery
+                      ? "border-fresh-200 bg-fresh-50/50"
+                      : "border-ink-200/70 bg-white",
+                  )}
+                >
+                  <span className="flex items-start gap-2">
+                    <MapPin
+                      className={cn(
+                        "mt-0.5 size-4 shrink-0",
+                        area.freeDelivery ? "text-fresh-600" : "text-ink-400",
+                      )}
+                    />
+                    <span className="text-sm font-semibold text-ink-900">{area.name}</span>
+                  </span>
+                  <span className="text-xs text-ink-400">
+                    {area.pincode} · ~{area.etaMinutes} min
+                  </span>
+                  {area.freeDelivery && (
+                    <Badge variant="success" size="sm" className="mt-auto w-fit">
+                      Free delivery zone
+                    </Badge>
+                  )}
+                </div>
+              </StaggerItem>
+            ))}
+          </Stagger>
+        ) : (
+          <p className="mt-12 rounded-2xl border border-dashed border-ink-200 px-6 py-10 text-center text-sm text-ink-500">
+            No delivery areas have been published yet.
+          </p>
+        )}
 
-        <Stagger
-          className="mt-12 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
-          stagger={0.05}
-        >
-          {deliveryAreas.map((area) => (
-            <StaggerItem key={area.name}>
-              <div
-                className={cn(
-                  "flex h-full flex-col gap-2 rounded-2xl border p-5 transition-colors",
-                  area.freeDelivery
-                    ? "border-fresh-200 bg-fresh-50/50"
-                    : "border-ink-200/70 bg-white",
-                )}
-              >
-                <span className="flex items-start gap-2">
-                  <MapPin
-                    className={cn(
-                      "mt-0.5 size-4 shrink-0",
-                      area.freeDelivery ? "text-fresh-600" : "text-ink-400",
-                    )}
-                  />
-                  <span className="text-sm font-semibold text-ink-900">{area.name}</span>
-                </span>
-                <span className="text-xs text-ink-400">
-                  {area.pincode} · ~{area.etaMinutes} min
-                </span>
-                {area.freeDelivery && (
-                  <Badge variant="success" size="sm" className="mt-auto w-fit">
-                    Free delivery zone
-                  </Badge>
-                )}
-              </div>
-            </StaggerItem>
-          ))}
-        </Stagger>
+        {info?.note && <p className="mt-6 text-center text-xs text-ink-400">{info.note}</p>}
       </div>
     </Section>
   );

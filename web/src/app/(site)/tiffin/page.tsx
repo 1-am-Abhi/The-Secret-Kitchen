@@ -44,18 +44,22 @@ function planSchema() {
       offerCount: tiffinPlans.length,
       availability: "https://schema.org/InStock",
     },
-    aggregateRating: {
-      "@type": "AggregateRating",
-      ratingValue: siteConfig.stats.rating,
-      reviewCount: siteConfig.stats.reviewCount,
-    },
   };
 }
 
+/**
+ * Facts about the plans themselves, not claims about how many people buy them.
+ * The subscriber count was removed rather than shown as a guess — it lives in
+ * Postgres and is surfaced on the home page from `getSiteStats()`.
+ */
 const HERO_STATS = [
-  { icon: CalendarCheck, value: siteConfig.stats.tiffinSubscribers, label: "Active subscribers" },
   { icon: Utensils, value: "28-day", label: "Rotating menu" },
-  { icon: IndianRupee, value: "₹89", label: "Meals from" },
+  { icon: CalendarCheck, value: "Pause anytime", label: "No lock-in" },
+  {
+    icon: IndianRupee,
+    value: `₹${Math.min(...tiffinPlans.map((p) => p.pricePerMeal.monthly))}`,
+    label: "Meals from",
+  },
 ];
 
 export default function TiffinPage() {

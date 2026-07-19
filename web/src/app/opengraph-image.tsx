@@ -89,10 +89,15 @@ export default function OpengraphImage() {
         </div>
 
         <div style={{ display: "flex", gap: 44, alignItems: "center" }}>
+          {/*
+            Properties of the service, not claims about traction. The OG card is
+            generated at the edge and cached by every social platform that
+            scrapes it, so a live figure baked in here would be frozen at
+            whatever it was the first time a crawler asked.
+          */}
           {[
-            { value: siteConfig.stats.mealsServed, label: "Meals served" },
-            { value: siteConfig.stats.tiffinSubscribers, label: "Subscribers" },
-            { value: `${siteConfig.stats.rating}★`, label: "Average rating" },
+            { value: "100%", label: "Pure vegetarian" },
+            { value: "Daily", label: "Cooked fresh" },
             { value: "45 min", label: "Delivery" },
           ].map((stat) => (
             <div key={stat.label} style={{ display: "flex", flexDirection: "column" }}>

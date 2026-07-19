@@ -1,10 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { ArrowDown, ArrowUp, CalendarDays, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, CalendarDays, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 
+import { ApiErrorNotice, LoadingBlock, useAdminQuery } from "@/components/admin/admin-data";
 import { EmptyState } from "@/components/admin/empty-state";
 import { PageHeader } from "@/components/admin/page-header";
+import { todayIso } from "@/components/admin/status-maps";
 import { SearchField } from "@/components/admin/toolbar";
 import { Badge, VegMark } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,44 +14,105 @@ import { Card } from "@/components/ui/card";
 import { FoodImage } from "@/components/ui/food-image";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TODAY, todaysSpecials } from "@/data/admin-mock";
-import { itemById, menuItems } from "@/data/menu";
-import type { MenuItem } from "@/types";
+import {
+  createAdminSpecial,
+  deleteAdminSpecial,
+  listAdminMenuItems,
+  listAdminSpecials,
+  updateAdminSpecial,
+  type AdminMenuItem,
+  type AdminSpecial,
+} from "@/lib/admin-orders";
 import { cn, formatPrice } from "@/lib/utils";
 
+/** The storefront rail shows four cards; eight is the hard ceiling. */
+const MAX_SLOTS = 8;
+/** How many dish suggestions the picker offers at a time. */
+const SUGGESTION_COUNT = 8;
+
+/**
+ * One row of the builder.
+ *
+ * `id` is the server's `DailySpecial` id, or `null` for a slot the operator has
+ * added but not published — that distinction is what lets Publish diff the
+ * draft against what the database actually holds.
+ */
 interface SpecialDraft {
+  id: string | null;
   itemId: string;
   specialPrice?: number;
   blurb: string;
 }
 
+function toDraft(special: AdminSpecial): SpecialDraft {
+  return {
+    id: special.id,
+    itemId: special.item.id,
+    specialPrice: special.specialPrice,
+    blurb: special.headline ?? "",
+  };
+}
+
 export function SpecialsView() {
-  const [scheduledFor, setScheduledFor] = React.useState(TODAY);
-  const [selected, setSelected] = React.useState<SpecialDraft[]>(
-    [...todaysSpecials]
-      .sort((a, b) => a.position - b.position)
-      .map(({ itemId, specialPrice, blurb }) => ({ itemId, specialPrice, blurb })),
-  );
+  const [scheduledFor, setScheduledFor] = React.useState("");
+  const [today, setToday] = React.useState("");
   const [query, setQuery] = React.useState("");
+  const [selected, setSelected] = React.useState<SpecialDraft[]>([]);
   const [dirty, setDirty] = React.useState(false);
+  const [publishing, setPublishing] = React.useState(false);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+
+  // "Today" is the operator's day; resolving it during a server render would
+  // pick the server's timezone and hydrate wrong.
+  React.useEffect(() => {
+    const day = todayIso();
+    setToday(day);
+    setScheduledFor(day);
+  }, []);
+
+  const loadSpecials = React.useCallback((signal: AbortSignal) => listAdminSpecials(signal), []);
+  const loadMenu = React.useCallback((signal: AbortSignal) => listAdminMenuItems(signal), []);
+
+  const specials = useAdminQuery(loadSpecials);
+  const menu = useAdminQuery(loadMenu);
+
+  const itemsById = React.useMemo(
+    () => new Map((menu.data ?? []).map((item) => [item.id, item])),
+    [menu.data],
+  );
+
+  /** What the database currently holds for the selected day. */
+  const published = React.useMemo(
+    () =>
+      (specials.data ?? [])
+        .filter((special) => special.date === scheduledFor)
+        .sort((a, b) => a.sortOrder - b.sortOrder),
+    [specials.data, scheduledFor],
+  );
+
+  // Changing the day (or a fresh fetch) resets the builder to what is stored.
+  React.useEffect(() => {
+    setSelected(published.map(toDraft));
+    setDirty(false);
+  }, [published]);
 
   const candidates = React.useMemo(() => {
     const needle = query.trim().toLowerCase();
     const chosen = new Set(selected.map((entry) => entry.itemId));
-    return menuItems
+    return (menu.data ?? [])
       .filter((item) => item.available && !chosen.has(item.id))
       .filter((item) => (needle ? item.name.toLowerCase().includes(needle) : true))
-      .slice(0, 8);
-  }, [query, selected]);
+      .slice(0, SUGGESTION_COUNT);
+  }, [menu.data, query, selected]);
 
   function mutate(next: SpecialDraft[]) {
     setSelected(next);
     setDirty(true);
   }
 
-  function add(item: MenuItem) {
-    if (selected.length >= 8) return;
-    mutate([...selected, { itemId: item.id, blurb: "" }]);
+  function add(item: AdminMenuItem) {
+    if (selected.length >= MAX_SLOTS) return;
+    mutate([...selected, { id: null, itemId: item.id, blurb: "" }]);
   }
 
   function remove(itemId: string) {
@@ -65,10 +128,75 @@ export function SpecialsView() {
   }
 
   function update(itemId: string, patch: Partial<SpecialDraft>) {
-    mutate(
-      selected.map((entry) => (entry.itemId === itemId ? { ...entry, ...patch } : entry)),
-    );
+    mutate(selected.map((entry) => (entry.itemId === itemId ? { ...entry, ...patch } : entry)));
   }
+
+  function discard() {
+    setSelected(published.map(toDraft));
+    setDirty(false);
+    setActionError(null);
+  }
+
+  /**
+   * Persist the builder as a diff against what is stored for that day.
+   *
+   * Rows the operator removed are deleted, new rows are created, and rows whose
+   * price, blurb or position changed are patched. Anything untouched is left
+   * alone so publishing twice is a no-op rather than a churn of writes.
+   */
+  async function publish() {
+    if (!scheduledFor) return;
+    setPublishing(true);
+    setActionError(null);
+
+    const keptIds = new Set(selected.map((entry) => entry.id).filter(Boolean));
+    const failures: string[] = [];
+
+    for (const special of published) {
+      if (keptIds.has(special.id)) continue;
+      const result = await deleteAdminSpecial(special.id);
+      if (!result.ok) failures.push(`remove ${special.item.name}: ${result.message}`);
+    }
+
+    for (const [index, entry] of selected.entries()) {
+      const item = itemsById.get(entry.itemId);
+      const name = item?.name ?? entry.itemId;
+
+      if (entry.id === null) {
+        const result = await createAdminSpecial({
+          menuItem: entry.itemId,
+          date: scheduledFor,
+          specialPrice: entry.specialPrice,
+          headline: entry.blurb.trim() || undefined,
+          sortOrder: index,
+        });
+        if (!result.ok) failures.push(`add ${name}: ${result.message}`);
+        continue;
+      }
+
+      const before = published.find((special) => special.id === entry.id);
+      const unchanged =
+        before &&
+        before.sortOrder === index &&
+        (before.specialPrice ?? null) === (entry.specialPrice ?? null) &&
+        (before.headline ?? "") === entry.blurb;
+      if (unchanged) continue;
+
+      const result = await updateAdminSpecial(entry.id, {
+        specialPrice: entry.specialPrice ?? null,
+        headline: entry.blurb.trim() || null,
+        sortOrder: index,
+      });
+      if (!result.ok) failures.push(`update ${name}: ${result.message}`);
+    }
+
+    setPublishing(false);
+    setActionError(failures.length > 0 ? `Could not ${failures.join("; ")}` : null);
+    if (failures.length === 0) setDirty(false);
+    specials.reload();
+  }
+
+  const loading = specials.loading && !specials.data;
 
   return (
     <div className="flex flex-col gap-6">
@@ -78,15 +206,34 @@ export function SpecialsView() {
         description="Curate the rail that sits directly under the storefront hero. Order matters — the first card gets roughly half of all taps."
         actions={
           <>
-            <Button variant="outline" size="md" disabled={!dirty} onClick={() => setDirty(false)}>
+            <Button
+              variant="outline"
+              size="md"
+              disabled={!dirty || publishing}
+              onClick={discard}
+            >
               Discard
             </Button>
-            <Button size="md" disabled={!dirty} onClick={() => setDirty(false)}>
+            <Button size="md" disabled={!dirty || publishing} onClick={() => void publish()}>
+              {publishing && <Loader2 className="animate-spin" />}
               Publish {selected.length} {selected.length === 1 ? "special" : "specials"}
             </Button>
           </>
         }
       />
+
+      {specials.failure && (
+        <ApiErrorNotice failure={specials.failure} onRetry={specials.reload} />
+      )}
+      {menu.failure && <ApiErrorNotice failure={menu.failure} onRetry={menu.reload} />}
+
+      <div role="status" aria-live="polite">
+        {actionError && (
+          <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {actionError}
+          </p>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_26rem]">
         {/* ---- Builder --------------------------------------------------- */}
@@ -102,17 +249,14 @@ export function SpecialsView() {
                   id="special-date"
                   type="date"
                   value={scheduledFor}
-                  min={TODAY}
-                  onChange={(event) => {
-                    setScheduledFor(event.target.value);
-                    setDirty(true);
-                  }}
+                  min={today}
+                  onChange={(event) => setScheduledFor(event.target.value)}
                   className="w-auto min-w-44"
                 />
               </div>
 
               <p className="text-sm text-ink-500">
-                {scheduledFor === TODAY
+                {scheduledFor === today
                   ? "Goes live immediately on publish."
                   : "Queued — it swaps in automatically at 00:00 on that date."}
               </p>
@@ -122,22 +266,24 @@ export function SpecialsView() {
           <Card className="rounded-3xl p-5 sm:p-6">
             <div className="flex items-center justify-between gap-3">
               <h2 className="font-display text-lg text-ink-900">Featured line-up</h2>
-              <Badge variant={selected.length >= 8 ? "warning" : "muted"} size="sm">
-                {selected.length} / 8 slots
+              <Badge variant={selected.length >= MAX_SLOTS ? "warning" : "muted"} size="sm">
+                {selected.length} / {MAX_SLOTS} slots
               </Badge>
             </div>
 
-            {selected.length === 0 ? (
+            {loading ? (
+              <LoadingBlock className="mt-5 h-40" label="Loading the published specials" />
+            ) : selected.length === 0 ? (
               <EmptyState
                 icon={Sparkles}
                 className="mt-5"
-                title="No specials picked yet"
-                description="Add a few dishes below — four is the sweet spot for the storefront rail."
+                title="No specials picked for this day"
+                description="Nothing is curated for that date, so the storefront falls back to its automatic rotation. Add a few dishes below — four is the sweet spot."
               />
             ) : (
               <ol className="mt-5 flex flex-col gap-3">
                 {selected.map((entry, index) => {
-                  const item = itemById.get(entry.itemId);
+                  const item = itemsById.get(entry.itemId);
                   if (!item) return null;
 
                   return (
@@ -249,7 +395,7 @@ export function SpecialsView() {
           <Card className="rounded-3xl p-5 sm:p-6">
             <h2 className="font-display text-lg text-ink-900">Add a dish</h2>
             <p className="mt-1 text-sm text-ink-500">
-              Only dishes marked available today can be featured.
+              Only dishes marked available in the menu can be featured.
             </p>
 
             <SearchField
@@ -260,7 +406,9 @@ export function SpecialsView() {
               className="mt-4 lg:max-w-none"
             />
 
-            {candidates.length === 0 ? (
+            {menu.loading && !menu.data ? (
+              <LoadingBlock className="mt-5 h-24" label="Loading the menu" />
+            ) : candidates.length === 0 ? (
               <p className="mt-5 text-sm text-ink-500">
                 Nothing else matches — every available dish for that search is already featured.
               </p>
@@ -271,7 +419,7 @@ export function SpecialsView() {
                     <button
                       type="button"
                       onClick={() => add(item)}
-                      disabled={selected.length >= 8}
+                      disabled={selected.length >= MAX_SLOTS}
                       className="flex w-full items-center gap-3 rounded-2xl border border-ink-200/70 bg-white p-2.5 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <span className="relative size-11 shrink-0 overflow-hidden rounded-xl bg-ink-100">
@@ -282,7 +430,8 @@ export function SpecialsView() {
                           {item.name}
                         </span>
                         <span className="block text-xs tabular-nums text-ink-500">
-                          {formatPrice(item.price)} · ★ {item.rating.toFixed(1)}
+                          {formatPrice(item.price)}
+                          {item.rating > 0 ? ` · ★ ${item.rating.toFixed(1)}` : ""}
                         </span>
                       </span>
                       <Plus className="size-4 shrink-0 text-brand-500" aria-hidden />
@@ -316,12 +465,13 @@ export function SpecialsView() {
 
               {selected.length === 0 ? (
                 <p className="mt-6 rounded-2xl border border-dashed border-ink-200 p-6 text-center text-sm text-ink-400">
-                  The rail is hidden on the storefront while no specials are set.
+                  Nothing curated for this day — the storefront falls back to its automatic
+                  rotation of chef specials and bestsellers.
                 </p>
               ) : (
                 <ul className="mt-5 flex flex-col gap-4">
                   {selected.slice(0, 4).map((entry) => {
-                    const item = itemById.get(entry.itemId);
+                    const item = itemsById.get(entry.itemId);
                     if (!item) return null;
                     const discounted =
                       entry.specialPrice !== undefined && entry.specialPrice < item.price;

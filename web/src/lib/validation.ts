@@ -139,3 +139,30 @@ export const CHECKOUT_STEP_FIELDS = {
   2: ["addressLine1", "addressLine2", "landmark", "city", "pincode", "addressType"],
   3: ["deliverySlot", "paymentMethod", "instructions", "contactlessDelivery"],
 } as const satisfies Record<number, readonly (keyof CheckoutValues)[]>;
+
+/* ==========================================================================
+   Admin sign-in
+   ========================================================================== */
+
+/**
+ * Client-side gate for `/admin/login`.
+ *
+ * The server is the real authority — this only stops obviously pointless
+ * requests reaching a rate-limited endpoint. The minimum length must stay in
+ * step with the backend's password policy; it deliberately does not describe
+ * the password's composition, since that would leak policy detail on a public
+ * route for no usability gain.
+ */
+export const adminLoginSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .min(1, "Enter your admin email address")
+    .pipe(z.email("Enter a valid email address")),
+  password: z
+    .string()
+    .min(1, "Enter your password")
+    .min(8, "Passwords are at least 8 characters"),
+});
+
+export type AdminLoginValues = z.infer<typeof adminLoginSchema>;

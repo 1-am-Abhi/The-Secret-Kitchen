@@ -29,7 +29,7 @@ export function AboutHero() {
             <Reveal>
               <span className="inline-flex items-center gap-2 rounded-full bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-brand-600 shadow-soft backdrop-blur">
                 <Leaf className="size-3.5" />
-                Since {siteConfig.foundedYear} · Sector 62, Noida
+                {siteConfig.address.line2}
               </span>
             </Reveal>
 
@@ -42,10 +42,9 @@ export function AboutHero() {
 
             <Reveal delay={0.16}>
               <p className="mt-6 max-w-xl text-lg leading-relaxed text-ink-600">
-                The Secret Kitchen began as one woman cooking dinner for her son and his
-                flatmates. Six years later we cook {siteConfig.stats.mealsServed} meals worth of
-                the same thing — pure vegetarian food made the way a home kitchen makes it,
-                with measured oil and vegetables bought that morning.
+                Pure vegetarian food made the way a home kitchen makes it — measured
+                oil, vegetables bought that morning, and portions that actually fill
+                you up. Nothing reheated, nothing from yesterday.
               </p>
             </Reveal>
 
@@ -92,22 +91,6 @@ export function AboutHero() {
                   alt="Whole spices ground fresh in the kitchen every week"
                   sizes="200px"
                 />
-              </div>
-            </Floating>
-
-            <Floating
-              className="absolute -right-3 top-8 hidden sm:block lg:-right-8"
-              delay={1.2}
-              distance={10}
-            >
-              <div className="glass rounded-2xl px-5 py-4 shadow-lift">
-                <p className="font-display text-3xl text-ink-900">
-                  {siteConfig.stats.rating}
-                  <span className="text-base text-ink-400">/5</span>
-                </p>
-                <p className="mt-0.5 text-xs text-ink-500">
-                  across {siteConfig.stats.reviewCount.toLocaleString("en-IN")} reviews
-                </p>
               </div>
             </Floating>
           </div>

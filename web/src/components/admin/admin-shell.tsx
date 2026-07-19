@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   ChevronDown,
@@ -24,11 +24,13 @@ import {
   OrderNotificationsProvider,
   OrdersUnreadBadge,
 } from "@/components/admin/order-notifications";
+import { useAdminSession } from "@/components/admin/admin-session";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { adminNav } from "@/config/navigation";
-import { siteConfig } from "@/config/site";
-import { adminUser } from "@/data/admin-mock";
+import { hasFssaiLicense, siteConfig } from "@/config/site";
+import { adminInitials, formatAdminRole } from "@/lib/admin-auth";
+import { ADMIN_LOGIN_PATH, clearAdminToken } from "@/lib/admin-orders";
 import { cn } from "@/lib/utils";
 
 /* ========================================================================== */
@@ -172,7 +174,7 @@ function SidebarBody({
           {!collapsed && <span>View storefront</span>}
         </Link>
 
-        {!collapsed && (
+        {!collapsed && hasFssaiLicense && (
           <p className="px-3 pb-1 pt-3 text-[11px] leading-relaxed text-white/30">
             FSSAI {siteConfig.fssaiLicense}
           </p>
@@ -187,11 +189,28 @@ function SidebarBody({
 /* ========================================================================== */
 
 function AccountMenu() {
+  const router = useRouter();
+  const session = useAdminSession();
+
   const items = [
     { label: "Profile", icon: UserRound },
     { label: "Settings", icon: Settings },
     { label: "Help & support", icon: LifeBuoy },
   ];
+
+  // `session` is null only when the panel runs without a configured API, where
+  // there is genuinely nobody signed in. Say that plainly rather than inventing
+  // a name — an operator must never be shown someone else's identity.
+  const name = session?.name ?? "Admin";
+  const email = session?.email ?? "No active session";
+  const role = session ? formatAdminRole(session.role) : "Offline mode";
+  const initials = session ? adminInitials(session.name) : "—";
+
+  /** End the session locally, then hand over to the login screen. */
+  const signOut = () => {
+    clearAdminToken();
+    router.replace(ADMIN_LOGIN_PATH);
+  };
 
   return (
     <DropdownMenu.Root>
@@ -202,15 +221,13 @@ function AccountMenu() {
           className="flex items-center gap-2.5 rounded-full py-1 pl-1 pr-2 transition-colors hover:bg-ink-100 data-[state=open]:bg-ink-100"
         >
           <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-ink-900 text-xs font-semibold text-white">
-            {adminUser.initials}
+            {initials}
           </span>
           <span className="hidden text-left lg:block">
-            <span className="block text-sm font-medium leading-tight text-ink-900">
-              {adminUser.name}
+            <span className="block max-w-[11rem] truncate text-sm font-medium leading-tight text-ink-900">
+              {name}
             </span>
-            <span className="block text-[11px] leading-tight text-ink-500">
-              {adminUser.role}
-            </span>
+            <span className="block text-[11px] leading-tight text-ink-500">{role}</span>
           </span>
           <ChevronDown className="hidden size-4 text-ink-400 lg:block" aria-hidden />
         </button>
@@ -223,8 +240,8 @@ function AccountMenu() {
           className="z-50 w-60 overflow-hidden rounded-2xl border border-ink-200/70 bg-white p-1.5 shadow-float data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
         >
           <div className="px-3 py-2.5">
-            <p className="truncate text-sm font-medium text-ink-900">{adminUser.name}</p>
-            <p className="truncate text-xs text-ink-500">{adminUser.email}</p>
+            <p className="truncate text-sm font-medium text-ink-900">{name}</p>
+            <p className="truncate text-xs text-ink-500">{email}</p>
           </div>
           <DropdownMenu.Separator className="my-1 h-px bg-ink-100" />
 
@@ -239,7 +256,10 @@ function AccountMenu() {
           ))}
 
           <DropdownMenu.Separator className="my-1 h-px bg-ink-100" />
-          <DropdownMenu.Item className="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-red-600 outline-none transition-colors data-[highlighted]:bg-red-50">
+          <DropdownMenu.Item
+            onSelect={signOut}
+            className="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-red-600 outline-none transition-colors data-[highlighted]:bg-red-50"
+          >
             <LogOut className="size-4" aria-hidden />
             Sign out
           </DropdownMenu.Item>

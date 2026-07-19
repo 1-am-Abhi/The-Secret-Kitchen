@@ -1,3 +1,5 @@
+import { env } from "./env";
+
 /**
  * Commerce rules. These MUST stay in lockstep with web/src/config/site.ts —
  * the storefront shows the customer a bill computed from these numbers and the
@@ -22,7 +24,8 @@ export const commerce = {
 export const DELIVERY_WAIVER_CODE = "FREEDEL";
 
 export const business = {
-  name: "The Secret Kitchen",
+  name: env.BUSINESS_NAME,
   supportEmail: "support@thesecretkitchen.in",
-  fssaiLicense: "12722016000456",
+  /** Blank until a real licence is configured — see BUSINESS_FSSAI_LICENSE. */
+  fssaiLicense: env.BUSINESS_FSSAI_LICENSE,
 } as const;

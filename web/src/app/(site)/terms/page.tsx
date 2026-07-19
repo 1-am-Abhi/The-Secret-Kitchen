@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { LegalPage, type LegalSection } from "@/components/legal/legal-page";
-import { siteConfig, fullAddress } from "@/config/site";
+import { siteConfig, fullAddress, hasFssaiLicense } from "@/config/site";
 import { buildMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = buildMetadata({
@@ -14,7 +14,9 @@ const sections: LegalSection[] = [
   {
     heading: "1. Who we are",
     paragraphs: [
-      `${siteConfig.name} is a pure-vegetarian cloud kitchen and tiffin service operating from ${fullAddress}, under FSSAI licence number ${siteConfig.fssaiLicense}.`,
+      `${siteConfig.name} is a pure-vegetarian cloud kitchen and tiffin service operating from ${fullAddress}${
+        hasFssaiLicense ? `, under FSSAI licence number ${siteConfig.fssaiLicense}` : ""
+      }.`,
       "By placing an order or subscribing to a tiffin plan you agree to these terms. If you do not agree with any part of them, please do not use the service.",
     ],
   },

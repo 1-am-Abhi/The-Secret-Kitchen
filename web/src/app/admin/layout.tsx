@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { AdminShell } from "@/components/admin/admin-shell";
+import { AdminAuthGuard } from "@/components/admin/admin-auth-guard";
 import { siteConfig } from "@/config/site";
 
 /**
@@ -31,6 +31,16 @@ export const metadata: Metadata = {
   },
 };
 
+/**
+ * Every admin route is gated here, so a new page under `/admin` is protected by
+ * existing rather than by remembering to add a guard.
+ *
+ * `AdminAuthGuard` owns the chrome as well as the check: it renders the shell
+ * once a session is verified, and renders `/admin/login` bare. That pairing has
+ * to live in one client component — a layout is a server component and cannot
+ * read the pathname, and a nested `login/layout.tsx` composes *inside* this one
+ * rather than replacing it, so it could not have opted out of the shell.
+ */
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  return <AdminShell>{children}</AdminShell>;
+  return <AdminAuthGuard>{children}</AdminAuthGuard>;
 }

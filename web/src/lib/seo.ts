@@ -85,8 +85,16 @@ export const defaultKeywords = [
    results (business card, star ratings, menu, FAQ accordion, breadcrumbs).
    ========================================================================== */
 
-export function localBusinessSchema() {
-  const { address, contact, hours, stats } = siteConfig;
+/**
+ * Restaurant structured data.
+ *
+ * `rating` is passed in from live published reviews, never read from config.
+ * When it is null the aggregateRating block is omitted entirely: asserting a
+ * star rating with no reviews behind it is false, breaches Google's
+ * structured-data policy and risks a manual action against the domain.
+ */
+export function localBusinessSchema(rating?: { value: number; count: number } | null) {
+  const { address, contact, hours } = siteConfig;
   return {
     "@context": "https://schema.org",
     "@type": "Restaurant",
@@ -129,12 +137,17 @@ export function localBusinessSchema() {
         closes: hours.weekend.close,
       },
     ],
-    aggregateRating: {
-      "@type": "AggregateRating",
-      ratingValue: stats.rating,
-      reviewCount: stats.reviewCount,
-      bestRating: 5,
-    },
+    // Only claimed when real reviews exist — see the note above.
+    ...(rating && rating.count > 0
+      ? {
+          aggregateRating: {
+            "@type": "AggregateRating",
+            ratingValue: rating.value,
+            reviewCount: rating.count,
+            bestRating: 5,
+          },
+        }
+      : {}),
     sameAs: Object.values(siteConfig.social),
   };
 }
@@ -148,7 +161,6 @@ export function organizationSchema() {
     url: siteConfig.url,
     logo: `${siteConfig.url}${ICON}`,
     description: siteConfig.description,
-    foundingDate: String(siteConfig.foundedYear),
     address: { "@type": "PostalAddress", streetAddress: fullAddress },
     contactPoint: {
       "@type": "ContactPoint",

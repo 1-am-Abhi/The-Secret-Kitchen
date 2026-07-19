@@ -50,3 +50,4 @@ contentRouter.get("/config", (_req, res) => {
     business: { name: business.name, fssaiLicense: business.fssaiLicense },
   });
 });
+

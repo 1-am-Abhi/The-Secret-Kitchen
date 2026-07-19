@@ -61,21 +61,29 @@ export const siteConfig = {
     averagePrepMinutes: 28,
   },
 
-  /** Social proof numbers surfaced in the hero and about page. */
-  stats: {
-    mealsServed: "1,20,000+",
-    happyCustomers: "8,500+",
-    tiffinSubscribers: "1,200+",
-    rating: 4.8,
-    reviewCount: 2143,
-    yearsRunning: 6,
-  },
+  /*
+   * There are deliberately no statistics in this file.
+   *
+   * Meals served, customers, subscribers, ratings and review counts are facts
+   * about the business, and a fact belongs in the database that records it —
+   * not in a config object where it can only ever be a guess that ages badly.
+   * Read them from `getSiteStats()` in src/lib/storefront-data.ts, which
+   * computes every figure from Postgres and returns nothing at all when there
+   * is nothing to report.
+   */
 
-  fssaiLicense: "12722016000456",
-  foundedYear: 2019,
+  /**
+   * Empty until the real licence number is supplied on deploy. Every surface
+   * that prints it checks `hasFssaiLicense` first, because an invented licence
+   * number is a regulatory claim, not a placeholder.
+   */
+  fssaiLicense: env.NEXT_PUBLIC_FSSAI_LICENSE || "",
 } as const;
 
 export type SiteConfig = typeof siteConfig;
+
+/** True only when a real licence number has been configured. */
+export const hasFssaiLicense = siteConfig.fssaiLicense.trim().length > 0;
 
 /** Full postal address on one line — footer, contact card, structured data. */
 export const fullAddress = [

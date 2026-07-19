@@ -1,6 +1,6 @@
 import { Router } from "express";
 
-import { requireAdmin } from "../../middleware/auth";
+import { attachAdmin, requireAdmin } from "../../middleware/auth";
 import { publicWriteLimiter } from "../../middleware/rateLimit";
 import { validate } from "../../middleware/validate";
 import { createReview, deleteReview, listReviews, updateReview } from "./reviews.controller";
@@ -13,7 +13,7 @@ import {
 
 export const reviewsRouter: Router = Router();
 
-reviewsRouter.get("/", validate({ query: listReviewsQuerySchema }), listReviews);
+reviewsRouter.get("/", attachAdmin, validate({ query: listReviewsQuerySchema }), listReviews);
 reviewsRouter.post("/", publicWriteLimiter, validate({ body: createReviewSchema }), createReview);
 
 reviewsRouter.patch(

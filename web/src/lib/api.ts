@@ -83,3 +83,43 @@ export function createSubscription(payload: unknown) {
     body: JSON.stringify(payload),
   });
 }
+
+export function submitReview(payload: {
+  name: string;
+  role?: string;
+  location?: string;
+  rating: number;
+  quote: string;
+}) {
+  return request<{ message: string }>("/reviews", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface CoverageResult {
+  covered: boolean;
+  query: string;
+  area?: { id: string; name: string; pincode: string; etaMinutes: number; freeDelivery: boolean };
+  outlet?: { id: string; name: string; city: string };
+}
+
+/**
+ * Pincode lookup against the outlets table.
+ *
+ * Resolves to `null` — not a "no" — when the API is unreachable, because the
+ * caller must be able to tell "we do not deliver there" apart from "we could
+ * not find out". Guessing either way misleads the customer.
+ */
+export async function checkDeliveryCoverage(query: string): Promise<CoverageResult | null> {
+  if (!API_URL) return null;
+
+  try {
+    const response = await fetch(`${API_URL}/outlets/coverage?q=${encodeURIComponent(query)}`);
+    if (!response.ok) return null;
+    const body = (await response.json()) as { data: CoverageResult };
+    return body.data ?? null;
+  } catch {
+    return null;
+  }
+}

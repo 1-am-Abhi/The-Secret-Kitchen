@@ -22,9 +22,9 @@ import { formatPrice } from "@/lib/utils";
 /**
  * Live count of orders sitting in `PENDING_CUSTOMER_CONFIRMATION`.
  *
- * `fallback` is the count derived from the bundled sample data; it is used
- * until (or unless) the API answers, and the tile says which it is showing so
- * the number is never mistaken for a real backlog.
+ * Both numbers come from the database: `fallback` is the count the analytics
+ * dashboard reported on its last fetch, and the stream's own count replaces it
+ * the moment one is available. The hint says which is on screen.
  */
 export function AwaitingConfirmationTile({ fallback }: { fallback: number }) {
   const { awaitingCount } = useOrderNotifications();
@@ -36,7 +36,7 @@ export function AwaitingConfirmationTile({ fallback }: { fallback: number }) {
       label="Awaiting confirmation"
       value={value}
       icon="TriangleAlert"
-      hint={live ? "needs a call or a WhatsApp nudge" : "sample data — API not connected"}
+      hint={live ? "needs a call or a WhatsApp nudge" : "as at the last dashboard refresh"}
       visual={
         <Button variant="outline" size="sm" className="w-full" asChild>
           <Link href="/admin/orders">

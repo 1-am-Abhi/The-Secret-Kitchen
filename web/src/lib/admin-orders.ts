@@ -1,12 +1,17 @@
 /**
- * Admin order API client.
+ * Admin API client.
  *
- * Implements the admin half of `docs/order-flow.md`:
+ * The single typed seam between the admin panel and the Express API. It covers
+ * the admin half of `docs/order-flow.md`:
  *
  *   GET   /api/admin/orders          list, filter, search, paginate
  *   GET   /api/admin/orders/:id      full detail with timeline
  *   PATCH /api/admin/orders/:id      advance status / add notes
  *   GET   /api/admin/orders/stream   SSE live feed
+ *
+ * and every other resource the panel renders — the analytics dashboard,
+ * customers, tiffin subscriptions, the menu catalogue, offers, the gallery and
+ * the daily specials. Screens never call `fetch` themselves.
  *
  * Two design rules drive the shape of this module:
  *
@@ -197,8 +202,6 @@ export interface AdminOrder {
   estimatedMinutes?: number;
   /** Telemetry only — the WhatsApp deep link was opened, NOT that Send was pressed. */
   handoffOpenedAt?: string;
-  /** True when this row came from the bundled sample data, not the API. */
-  isSample?: boolean;
 }
 
 export function orderItemCount(order: AdminOrder): number {
@@ -214,7 +217,7 @@ export function orderItemCount(order: AdminOrder): number {
  *
  * `offline` covers both "no `NEXT_PUBLIC_API_URL`" and "no admin token" — from
  * the panel's point of view they are the same situation: there is nothing live
- * to talk to, show the sample data with an honest banner.
+ * to talk to, so the screen says exactly that and shows no figures at all.
  */
 export type AdminFailureReason = "offline" | "unauthorized" | "network" | "server" | "invalid";
 
@@ -281,6 +284,35 @@ export function clearAdminToken(): void {
 /** Can we actually reach the admin API right now? */
 export function isAdminApiReady(): boolean {
   return isAdminApiConfigured && getAdminToken() !== null;
+}
+
+/** Where an expired session is sent back to. */
+export const ADMIN_LOGIN_PATH = "/admin/login";
+
+/**
+ * Discard a rejected session and send the operator to sign in again.
+ *
+ * A JWT that expires mid-shift otherwise leaves every panel showing an empty
+ * "not connected" state that a reload will not fix, so any 401/403 from the
+ * admin API ends the session here rather than being absorbed silently.
+ *
+ * Uses `window.location` rather than the router: this module is imported by
+ * plain functions as well as components, and a hard navigation also guarantees
+ * no stale authenticated data survives in memory. Callers still get their
+ * normal `unauthorized` result — the redirect is not instantaneous and nothing
+ * downstream should have to special-case it.
+ */
+export function forceAdminReauth(): void {
+  clearAdminToken();
+  if (typeof window === "undefined") return;
+
+  const { pathname, search } = window.location;
+  // Already on the sign-in screen: nothing to bounce, and re-navigating would
+  // wipe the error message the operator is reading.
+  if (pathname === ADMIN_LOGIN_PATH) return;
+
+  const next = `${pathname}${search}`;
+  window.location.replace(`${ADMIN_LOGIN_PATH}?next=${encodeURIComponent(next)}`);
 }
 
 /* ========================================================================== */
@@ -430,21 +462,28 @@ export function normalizeOrder(raw: unknown): AdminOrder {
 /* ========================================================================== */
 
 interface RequestOptions {
-  method?: "GET" | "PATCH" | "POST";
+  method?: "GET" | "PATCH" | "POST" | "DELETE";
   body?: unknown;
   signal?: AbortSignal;
+  /**
+   * `optional` marks an endpoint that is readable without a session (the public
+   * menu, gallery and offers listings the panel also renders). The token is
+   * still sent when one exists, so admin-only fields come back if the server
+   * chooses to include them.
+   */
+  auth?: "required" | "optional";
 }
 
 async function adminRequest(
   path: string,
-  { method = "GET", body, signal }: RequestOptions = {},
+  { method = "GET", body, signal, auth = "required" }: RequestOptions = {},
 ): Promise<AdminResult<{ payload: unknown }>> {
   if (!API_URL) {
     return fail("offline", "No API URL is configured for this deployment.");
   }
 
   const token = getAdminToken();
-  if (!token) {
+  if (!token && auth === "required") {
     return fail("offline", "No admin session token is stored in this browser.");
   }
 
@@ -456,7 +495,7 @@ async function adminRequest(
       cache: "no-store",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${token}`,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(body === undefined ? {} : { "Content-Type": "application/json" }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -471,6 +510,9 @@ async function adminRequest(
   }
 
   if (response.status === 401 || response.status === 403) {
+    // Expired or revoked token: clear it and bounce, so the panel does not sit
+    // there rendering an empty dashboard for a session that no longer exists.
+    forceAdminReauth();
     return fail("unauthorized", "This admin session is not authorised.", response.status);
   }
 
@@ -735,4 +777,935 @@ export function formatDeliveryAddress(delivery: AdminOrderDelivery): string {
   ]
     .filter((part): part is string => Boolean(part && part.length > 0))
     .join(", ");
+}
+
+/* ========================================================================== */
+/*  Analytics dashboard                                                       */
+/* ========================================================================== */
+
+/**
+ * `GET /api/analytics/dashboard` reports one state the order lifecycle does not
+ * model — an order whose payment has not settled — so the dashboard's status
+ * vocabulary is the lifecycle plus that extra bucket.
+ */
+export const DASHBOARD_STATUS_KEYS = ["PENDING_PAYMENT", ...ORDER_STATUSES] as const;
+
+export type DashboardStatusKey = (typeof DASHBOARD_STATUS_KEYS)[number];
+
+export const DASHBOARD_STATUS_LABEL: Record<DashboardStatusKey, string> = {
+  PENDING_PAYMENT: "Pending payment",
+  ...ORDER_STATUS_LABEL,
+};
+
+export const DASHBOARD_STATUS_HEX: Record<DashboardStatusKey, string> = {
+  PENDING_PAYMENT: "#9ca3af",
+  ...ORDER_STATUS_HEX,
+};
+
+export interface DashboardSeriesPoint {
+  /** YYYY-MM-DD. */
+  date: string;
+  revenue: number;
+  orders: number;
+}
+
+export interface DashboardTopDish {
+  menuItemId: string;
+  name: string;
+  quantity: number;
+  revenue: number;
+}
+
+export interface AnalyticsDashboard {
+  range: { from: string; to: string; days: number };
+  revenue: {
+    total: number;
+    previousTotal: number;
+    changePercent: number;
+    averageOrderValue: number;
+    discountGiven: number;
+    gstCollected: number;
+    subscriptionBook: number;
+  };
+  orders: {
+    total: number;
+    delivered: number;
+    previousDelivered: number;
+    changePercent: number;
+    byStatus: Record<DashboardStatusKey, number>;
+    inFlight: number;
+    awaitingConfirmation: number;
+  };
+  topDishes: DashboardTopDish[];
+  customers: { total: number; new: number };
+  subscriptions: {
+    active: number;
+    paused: number;
+    pending: number;
+    cancelled: number;
+    newInWindow: number;
+  };
+  newsletter: { total: number; newInWindow: number };
+  operations: { openEnquiries: number; unavailableDishes: number };
+  series: { daily: DashboardSeriesPoint[] };
+}
+
+function normalizeDashboard(raw: unknown): AnalyticsDashboard {
+  const root = asRecord(raw);
+  const range = asRecord(root.range);
+  const revenue = asRecord(root.revenue);
+  const orders = asRecord(root.orders);
+  const byStatus = asRecord(orders.byStatus);
+  const customers = asRecord(root.customers);
+  const subscriptions = asRecord(root.subscriptions);
+  const newsletter = asRecord(root.newsletter);
+  const operations = asRecord(root.operations);
+  const series = asRecord(root.series);
+
+  const counts = {} as Record<DashboardStatusKey, number>;
+  for (const key of DASHBOARD_STATUS_KEYS) counts[key] = num(byStatus[key]);
+
+  return {
+    range: {
+      from: str(range.from),
+      to: str(range.to),
+      days: num(range.days, 30),
+    },
+    revenue: {
+      total: num(revenue.total),
+      previousTotal: num(revenue.previousTotal),
+      changePercent: num(revenue.changePercent),
+      averageOrderValue: num(revenue.averageOrderValue),
+      discountGiven: num(revenue.discountGiven),
+      gstCollected: num(revenue.gstCollected),
+      subscriptionBook: num(revenue.subscriptionBook),
+    },
+    orders: {
+      total: num(orders.total),
+      delivered: num(orders.delivered),
+      previousDelivered: num(orders.previousDelivered),
+      changePercent: num(orders.changePercent),
+      byStatus: counts,
+      inFlight: num(orders.inFlight),
+      awaitingConfirmation: num(orders.awaitingConfirmation),
+    },
+    topDishes: (Array.isArray(root.topDishes) ? root.topDishes : []).map((entry) => {
+      const dish = asRecord(entry);
+      return {
+        menuItemId: str(dish.menuItemId),
+        name: str(dish.name, "Kitchen special"),
+        quantity: num(dish.quantity),
+        revenue: num(dish.revenue),
+      };
+    }),
+    customers: { total: num(customers.total), new: num(customers.new) },
+    subscriptions: {
+      active: num(subscriptions.active),
+      paused: num(subscriptions.paused),
+      pending: num(subscriptions.pending),
+      cancelled: num(subscriptions.cancelled),
+      newInWindow: num(subscriptions.newInWindow),
+    },
+    newsletter: { total: num(newsletter.total), newInWindow: num(newsletter.newInWindow) },
+    operations: {
+      openEnquiries: num(operations.openEnquiries),
+      unavailableDishes: num(operations.unavailableDishes),
+    },
+    series: {
+      daily: (Array.isArray(series.daily) ? series.daily : []).map((entry) => {
+        const point = asRecord(entry);
+        return {
+          date: str(point.date).slice(0, 10),
+          revenue: num(point.revenue),
+          orders: num(point.orders),
+        };
+      }),
+    },
+  };
+}
+
+export interface DashboardParams {
+  /** Trailing window in days. The API accepts 7–365 and defaults to 30. */
+  days?: number;
+  /** How many rows `topDishes` should contain (1–25). */
+  topDishes?: number;
+  signal?: AbortSignal;
+}
+
+/**
+ * The panel's single source of aggregate truth.
+ *
+ * Note the response is top level, not wrapped in `data` like the list
+ * endpoints — the normaliser reads straight off the root object.
+ */
+export async function getAnalyticsDashboard(
+  params: DashboardParams = {},
+): Promise<AdminResult<{ data: AnalyticsDashboard }>> {
+  const query = new URLSearchParams();
+  if (params.days) query.set("days", String(params.days));
+  if (params.topDishes) query.set("topDishes", String(params.topDishes));
+  const suffix = query.toString() ? `?${query}` : "";
+
+  const result = await adminRequest(`/analytics/dashboard${suffix}`, { signal: params.signal });
+  if (!result.ok) return result;
+  return { ok: true, data: normalizeDashboard(result.payload) };
+}
+
+/* ========================================================================== */
+/*  Pagination envelope shared by the list endpoints                          */
+/* ========================================================================== */
+
+export interface AdminPage<T> {
+  items: T[];
+  meta: ListOrdersMeta;
+}
+
+function readMeta(payload: unknown, fallbackCount: number, limit: number): ListOrdersMeta {
+  const meta = asRecord(asRecord(payload).meta);
+  const total = num(meta.total, fallbackCount);
+  const perPage = num(meta.limit, limit);
+  return {
+    page: num(meta.page, 1),
+    limit: perPage,
+    total,
+    pages: num(meta.pages, Math.max(1, Math.ceil(total / Math.max(1, perPage)))),
+  };
+}
+
+function rows(payload: unknown): unknown[] {
+  const data = asRecord(payload).data;
+  return Array.isArray(data) ? data : [];
+}
+
+/* ========================================================================== */
+/*  Customers                                                                 */
+/* ========================================================================== */
+
+export interface AdminCustomerSummary {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  orderCount: number;
+  subscriptionCount: number;
+  /** Sum of delivered orders only — pending rows are not revenue. */
+  lifetimeValue: number;
+  lastOrderAt?: string;
+  joinedAt: string;
+}
+
+function normalizeCustomer(raw: unknown): AdminCustomerSummary {
+  const customer = asRecord(raw);
+  return {
+    id: str(customer.id),
+    name: str(customer.name, "Customer"),
+    phone: str(customer.phone),
+    email: optionalStr(customer.email),
+    orderCount: Math.max(0, Math.round(num(customer.orderCount))),
+    subscriptionCount: Math.max(0, Math.round(num(customer.subscriptionCount))),
+    lifetimeValue: num(customer.lifetimeValue),
+    lastOrderAt: customer.lastOrderAt ? isoDate(customer.lastOrderAt) || undefined : undefined,
+    joinedAt: isoDate(customer.joinedAt),
+  };
+}
+
+export interface ListCustomersParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  sort?: "newest" | "orders" | "spend";
+  signal?: AbortSignal;
+}
+
+export async function listAdminCustomers(
+  params: ListCustomersParams = {},
+): Promise<AdminResult<{ data: AdminPage<AdminCustomerSummary> }>> {
+  const limit = params.limit ?? 100;
+  const query = new URLSearchParams();
+  query.set("page", String(params.page ?? 1));
+  query.set("limit", String(limit));
+  if (params.search?.trim()) query.set("search", params.search.trim());
+  if (params.sort) query.set("sort", params.sort);
+
+  const result = await adminRequest(`/customers?${query}`, { signal: params.signal });
+  if (!result.ok) return result;
+
+  const items = rows(result.payload).map(normalizeCustomer);
+  return { ok: true, data: { items, meta: readMeta(result.payload, items.length, limit) } };
+}
+
+export interface AdminCustomerAddress {
+  id: string;
+  label: string;
+  line1: string;
+  line2?: string;
+  landmark?: string;
+  city: string;
+  pincode: string;
+  isDefault: boolean;
+}
+
+export interface AdminCustomerOrderRef {
+  id: string;
+  orderNumber: string;
+  status: OrderStatus;
+  total: number;
+  placedAt: string;
+  itemCount: number;
+}
+
+export interface AdminCustomerSubscriptionRef {
+  id: string;
+  code: string;
+  plan: string;
+  status: string;
+  mealsRemaining: number;
+}
+
+export interface AdminCustomerDetail {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  joinedAt: string;
+  addresses: AdminCustomerAddress[];
+  orders: AdminCustomerOrderRef[];
+  subscriptions: AdminCustomerSubscriptionRef[];
+}
+
+export async function getAdminCustomer(
+  id: string,
+  signal?: AbortSignal,
+): Promise<AdminResult<{ data: AdminCustomerDetail }>> {
+  const result = await adminRequest(`/customers/${encodeURIComponent(id)}`, { signal });
+  if (!result.ok) return result;
+
+  const customer = asRecord(asRecord(result.payload).data);
+  const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
+  return {
+    ok: true,
+    data: {
+      id: str(customer.id),
+      name: str(customer.name, "Customer"),
+      phone: str(customer.phone),
+      email: optionalStr(customer.email),
+      joinedAt: isoDate(customer.joinedAt),
+      addresses: list(customer.addresses).map((raw): AdminCustomerAddress => {
+        const address = asRecord(raw);
+        return {
+          id: str(address.id),
+          label: str(address.label, "Home"),
+          line1: str(address.line1),
+          line2: optionalStr(address.line2),
+          landmark: optionalStr(address.landmark),
+          city: str(address.city),
+          pincode: str(address.pincode),
+          isDefault: address.isDefault === true,
+        };
+      }),
+      orders: list(customer.orders).map((raw): AdminCustomerOrderRef => {
+        const order = asRecord(raw);
+        return {
+          id: str(order.id),
+          orderNumber: str(order.orderNumber, str(order.id)),
+          status: isOrderStatus(order.status) ? order.status : "PENDING_CUSTOMER_CONFIRMATION",
+          total: num(order.total),
+          placedAt: isoDate(order.placedAt),
+          itemCount: Math.max(0, Math.round(num(order.itemCount))),
+        };
+      }),
+      subscriptions: list(customer.subscriptions).map((raw): AdminCustomerSubscriptionRef => {
+        const subscription = asRecord(raw);
+        return {
+          id: str(subscription.id),
+          code: str(subscription.code),
+          plan: str(subscription.plan),
+          status: str(subscription.status, "pending").toLowerCase(),
+          mealsRemaining: Math.max(0, Math.round(num(subscription.mealsRemaining))),
+        };
+      }),
+    },
+  };
+}
+
+/* ========================================================================== */
+/*  Tiffin subscriptions                                                      */
+/* ========================================================================== */
+
+export const SUBSCRIPTION_STATUSES = ["pending", "active", "paused", "cancelled"] as const;
+
+export type AdminSubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
+
+export function isSubscriptionStatus(value: unknown): value is AdminSubscriptionStatus {
+  return (
+    typeof value === "string" &&
+    (SUBSCRIPTION_STATUSES as readonly string[]).includes(value.toLowerCase())
+  );
+}
+
+export const SUBSCRIPTION_STATUS_LABEL: Record<AdminSubscriptionStatus, string> = {
+  pending: "Pending",
+  active: "Active",
+  paused: "Paused",
+  cancelled: "Cancelled",
+};
+
+export const SUBSCRIPTION_STATUS_TONE: Record<AdminSubscriptionStatus, StatusTone> = {
+  pending: "progress",
+  active: "success",
+  paused: "info",
+  cancelled: "danger",
+};
+
+export type AdminPlanTier = "student" | "regular" | "premium";
+export type AdminBillingCycle = "weekly" | "monthly";
+export type AdminMealSlot = "lunch" | "dinner" | "both";
+
+export interface AdminSubscription {
+  id: string;
+  code: string;
+  planTier: AdminPlanTier;
+  planName: string;
+  cycle: AdminBillingCycle;
+  slot: AdminMealSlot;
+  status: AdminSubscriptionStatus;
+  startDate: string;
+  nextDeliveryDate: string;
+  endDate?: string;
+  mealsTotal: number;
+  mealsRemaining: number;
+  pricePerMeal: number;
+  /** What the customer was billed for this cycle, net of discount. */
+  amount: number;
+  discount: number;
+  couponCode?: string;
+  paymentStatus: string;
+  addressLabel: string;
+  skippedDates: string[];
+  customerName: string;
+  customerPhone: string;
+}
+
+function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  const candidate = str(value).toLowerCase();
+  return (allowed as readonly string[]).includes(candidate) ? (candidate as T) : fallback;
+}
+
+function normalizeSubscription(raw: unknown): AdminSubscription {
+  const subscription = asRecord(raw);
+  const customer = asRecord(subscription.customer);
+
+  return {
+    id: str(subscription.id),
+    code: str(subscription.code, str(subscription.id)),
+    planTier: oneOf<AdminPlanTier>(
+      subscription.planTier,
+      ["student", "regular", "premium"],
+      "regular",
+    ),
+    planName: str(subscription.planName, "Tiffin plan"),
+    cycle: oneOf<AdminBillingCycle>(subscription.cycle, ["weekly", "monthly"], "monthly"),
+    slot: oneOf<AdminMealSlot>(subscription.slot, ["lunch", "dinner", "both"], "lunch"),
+    status: oneOf<AdminSubscriptionStatus>(subscription.status, SUBSCRIPTION_STATUSES, "pending"),
+    startDate: str(subscription.startDate).slice(0, 10),
+    nextDeliveryDate: str(subscription.nextDeliveryDate).slice(0, 10),
+    endDate: optionalStr(subscription.endDate)?.slice(0, 10),
+    mealsTotal: Math.max(0, Math.round(num(subscription.mealsTotal))),
+    mealsRemaining: Math.max(0, Math.round(num(subscription.mealsRemaining))),
+    pricePerMeal: num(subscription.pricePerMeal),
+    amount: num(subscription.amount),
+    discount: num(subscription.discount),
+    couponCode: optionalStr(subscription.couponCode),
+    paymentStatus: str(subscription.paymentStatus, "PENDING"),
+    addressLabel: str(subscription.addressLabel),
+    skippedDates: strArray(subscription.skippedDates),
+    customerName: str(customer.name, "Customer"),
+    customerPhone: str(customer.phone),
+  };
+}
+
+export interface ListSubscriptionsParams {
+  page?: number;
+  limit?: number;
+  status?: AdminSubscriptionStatus;
+  planTier?: AdminPlanTier;
+  search?: string;
+  signal?: AbortSignal;
+}
+
+export async function listAdminSubscriptions(
+  params: ListSubscriptionsParams = {},
+): Promise<AdminResult<{ data: AdminPage<AdminSubscription> }>> {
+  const limit = params.limit ?? 100;
+  const query = new URLSearchParams();
+  query.set("page", String(params.page ?? 1));
+  query.set("limit", String(limit));
+  if (params.status) query.set("status", params.status);
+  if (params.planTier) query.set("planTier", params.planTier);
+  if (params.search?.trim()) query.set("search", params.search.trim());
+
+  const result = await adminRequest(`/subscriptions/admin?${query}`, { signal: params.signal });
+  if (!result.ok) return result;
+
+  const items = rows(result.payload).map(normalizeSubscription);
+  return { ok: true, data: { items, meta: readMeta(result.payload, items.length, limit) } };
+}
+
+export interface SubscriptionLifecyclePayload {
+  /** Days to pause for; the API defaults it when omitted. */
+  days?: number;
+  reason?: string;
+}
+
+async function subscriptionLifecycle(
+  id: string,
+  action: "pause" | "resume" | "cancel",
+  payload: SubscriptionLifecyclePayload = {},
+): Promise<AdminResult<{ data: AdminSubscription }>> {
+  const result = await adminRequest(`/subscriptions/${encodeURIComponent(id)}/${action}`, {
+    method: "PATCH",
+    body: payload,
+  });
+  if (!result.ok) return result;
+  return { ok: true, data: normalizeSubscription(asRecord(result.payload).data) };
+}
+
+export function pauseAdminSubscription(id: string, payload?: SubscriptionLifecyclePayload) {
+  return subscriptionLifecycle(id, "pause", payload);
+}
+
+export function resumeAdminSubscription(id: string) {
+  return subscriptionLifecycle(id, "resume");
+}
+
+export function cancelAdminSubscription(id: string, reason?: string) {
+  return subscriptionLifecycle(id, "cancel", reason ? { reason } : {});
+}
+
+/** Bank a meal by skipping one scheduled delivery date (YYYY-MM-DD). */
+export async function skipAdminSubscriptionDate(
+  id: string,
+  date: string,
+): Promise<AdminResult<{ data: AdminSubscription }>> {
+  const result = await adminRequest(`/subscriptions/${encodeURIComponent(id)}/skip`, {
+    method: "PATCH",
+    body: { date },
+  });
+  if (!result.ok) return result;
+  return { ok: true, data: normalizeSubscription(asRecord(result.payload).data) };
+}
+
+/* ========================================================================== */
+/*  Menu catalogue (read-only here — the menu screen owns writes)             */
+/* ========================================================================== */
+
+export interface AdminMenuCategory {
+  id: string;
+  slug: string;
+  name: string;
+  order: number;
+  itemCount: number;
+}
+
+export interface AdminMenuItem {
+  id: string;
+  code: string;
+  slug: string;
+  name: string;
+  description: string;
+  /** Category slug, matching `AdminMenuCategory.slug`. */
+  category: string;
+  categoryId: string;
+  price: number;
+  imageId: string;
+  isVeg: boolean;
+  rating: number;
+  available: boolean;
+}
+
+function normalizeMenuItem(raw: unknown): AdminMenuItem {
+  const item = asRecord(raw);
+  return {
+    id: str(item.id),
+    code: str(item.code),
+    slug: str(item.slug),
+    name: str(item.name, "Kitchen special"),
+    description: str(item.description),
+    category: str(item.category),
+    categoryId: str(item.categoryId),
+    price: num(item.price),
+    imageId: str(item.imageId, "hero-1"),
+    isVeg: item.isVeg !== false,
+    rating: num(item.rating),
+    available: item.available !== false,
+  };
+}
+
+export async function listAdminMenuCategories(
+  signal?: AbortSignal,
+): Promise<AdminResult<{ data: AdminMenuCategory[] }>> {
+  const result = await adminRequest("/menu/categories", { signal, auth: "optional" });
+  if (!result.ok) return result;
+
+  return {
+    ok: true,
+    data: rows(result.payload).map((raw): AdminMenuCategory => {
+      const category = asRecord(raw);
+      return {
+        id: str(category.id),
+        slug: str(category.slug),
+        name: str(category.name, str(category.slug)),
+        order: num(category.order),
+        itemCount: Math.max(0, Math.round(num(category.itemCount))),
+      };
+    }),
+  };
+}
+
+export async function listAdminMenuItems(
+  signal?: AbortSignal,
+): Promise<AdminResult<{ data: AdminMenuItem[] }>> {
+  // The catalogue is 58 rows today and the endpoint caps `limit` at 100; one
+  // page is deliberate, and the count assertion lives in the caller's UI copy.
+  const result = await adminRequest("/menu?limit=100", { signal, auth: "optional" });
+  if (!result.ok) return result;
+
+  return { ok: true, data: rows(result.payload).map(normalizeMenuItem) };
+}
+
+/* ========================================================================== */
+/*  Offers & coupons                                                          */
+/* ========================================================================== */
+
+export type AdminOfferDiscountType = "percentage" | "flat" | "freebie";
+export type AdminOfferScope = "order" | "subscription";
+
+export interface AdminOffer {
+  id: string;
+  code: string;
+  title: string;
+  description: string;
+  discountType: AdminOfferDiscountType;
+  discountValue: number;
+  minOrder: number;
+  maxDiscount?: number;
+  /** YYYY-MM-DD. */
+  validUntil: string;
+  terms: string[];
+  imageId: string;
+  featured: boolean;
+  appliesTo: AdminOfferScope;
+  /**
+   * Derived, not returned: the API's public projection omits `active`, so a
+   * coupon counts as active when the unfiltered listing (which the server
+   * restricts to `active && not expired`) also contains it.
+   */
+  active: boolean;
+}
+
+function normalizeOffer(raw: unknown, active: boolean): AdminOffer {
+  const offer = asRecord(raw);
+  const maxDiscount = offer.maxDiscount;
+  return {
+    id: str(offer.id),
+    code: str(offer.code),
+    title: str(offer.title),
+    description: str(offer.description),
+    discountType: oneOf<AdminOfferDiscountType>(
+      offer.discountType,
+      ["percentage", "flat", "freebie"],
+      "percentage",
+    ),
+    discountValue: num(offer.discountValue),
+    minOrder: num(offer.minOrder),
+    maxDiscount: typeof maxDiscount === "number" ? maxDiscount : undefined,
+    validUntil: str(offer.validUntil).slice(0, 10),
+    terms: strArray(offer.terms),
+    imageId: str(offer.imageId, "offer-1"),
+    featured: offer.featured === true,
+    appliesTo: oneOf<AdminOfferScope>(offer.appliesTo, ["order", "subscription"], "order"),
+    active,
+  };
+}
+
+/**
+ * Every coupon, with an honest `active` flag.
+ *
+ * Two calls, because the API exposes activation only as a filter: the second
+ * listing is the server's own definition of "live right now", so membership in
+ * it is the flag rather than a guess made in the browser.
+ */
+export async function listAdminOffers(
+  signal?: AbortSignal,
+): Promise<AdminResult<{ data: AdminOffer[] }>> {
+  const [all, live] = await Promise.all([
+    adminRequest("/offers?includeInactive=true", { signal, auth: "optional" }),
+    adminRequest("/offers", { signal, auth: "optional" }),
+  ]);
+  if (!all.ok) return all;
+  if (!live.ok) return live;
+
+  const liveIds = new Set(rows(live.payload).map((raw) => str(asRecord(raw).id)));
+
+  return {
+    ok: true,
+    data: rows(all.payload).map((raw) => normalizeOffer(raw, liveIds.has(str(asRecord(raw).id)))),
+  };
+}
+
+export interface OfferInput {
+  code: string;
+  title: string;
+  description: string;
+  discountType: AdminOfferDiscountType;
+  discountValue: number;
+  minOrder: number;
+  maxDiscount?: number;
+  validUntil: string;
+  terms: string[];
+  imageId: string;
+  featured: boolean;
+  appliesTo: AdminOfferScope;
+  active: boolean;
+}
+
+export async function createAdminOffer(
+  input: OfferInput,
+): Promise<AdminResult<{ data: AdminOffer }>> {
+  const result = await adminRequest("/offers", { method: "POST", body: input });
+  if (!result.ok) return result;
+  return { ok: true, data: normalizeOffer(asRecord(result.payload).data, input.active) };
+}
+
+export async function updateAdminOffer(
+  id: string,
+  patch: Partial<OfferInput>,
+): Promise<AdminResult<{ data: AdminOffer }>> {
+  const result = await adminRequest(`/offers/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: patch,
+  });
+  if (!result.ok) return result;
+  return { ok: true, data: normalizeOffer(asRecord(result.payload).data, patch.active !== false) };
+}
+
+export async function deleteAdminOffer(id: string): Promise<AdminResult<{ data: null }>> {
+  const result = await adminRequest(`/offers/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!result.ok) return result;
+  return { ok: true, data: null };
+}
+
+/* ========================================================================== */
+/*  Gallery                                                                   */
+/* ========================================================================== */
+
+export const GALLERY_CATEGORIES = [
+  "dishes",
+  "kitchen",
+  "team",
+  "packaging",
+  "moments",
+] as const;
+
+export type AdminGalleryCategory = (typeof GALLERY_CATEGORIES)[number];
+
+export const GALLERY_ASPECTS = ["portrait", "landscape", "square"] as const;
+
+export type AdminGalleryAspect = (typeof GALLERY_ASPECTS)[number];
+
+export interface AdminGalleryImage {
+  id: string;
+  imageId: string;
+  imageUrl?: string;
+  caption: string;
+  category: AdminGalleryCategory;
+  aspect: AdminGalleryAspect;
+  sortOrder: number;
+}
+
+function normalizeGalleryImage(raw: unknown): AdminGalleryImage {
+  const image = asRecord(raw);
+  return {
+    id: str(image.id),
+    imageId: str(image.imageId, "hero-1"),
+    imageUrl: optionalStr(image.imageUrl),
+    caption: str(image.caption),
+    category: oneOf<AdminGalleryCategory>(image.category, GALLERY_CATEGORIES, "dishes"),
+    aspect: oneOf<AdminGalleryAspect>(image.aspect, GALLERY_ASPECTS, "square"),
+    sortOrder: num(image.sortOrder),
+  };
+}
+
+export async function listAdminGallery(
+  signal?: AbortSignal,
+): Promise<AdminResult<{ data: AdminGalleryImage[] }>> {
+  const result = await adminRequest("/gallery?limit=100&includeUnpublished=true", {
+    signal,
+    auth: "optional",
+  });
+  if (!result.ok) return result;
+  return { ok: true, data: rows(result.payload).map(normalizeGalleryImage) };
+}
+
+export interface GalleryImagePatch {
+  caption?: string;
+  category?: AdminGalleryCategory;
+  aspect?: AdminGalleryAspect;
+  sortOrder?: number;
+  published?: boolean;
+}
+
+export async function updateAdminGalleryImage(
+  id: string,
+  patch: GalleryImagePatch,
+): Promise<AdminResult<{ data: AdminGalleryImage }>> {
+  const result = await adminRequest(`/gallery/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: patch,
+  });
+  if (!result.ok) return result;
+  return { ok: true, data: normalizeGalleryImage(asRecord(result.payload).data) };
+}
+
+export interface GalleryUploadMeta {
+  caption: string;
+  category: AdminGalleryCategory;
+  aspect: AdminGalleryAspect;
+  sortOrder?: number;
+}
+
+/**
+ * `POST /api/gallery/upload` — multipart, not JSON.
+ *
+ * This is the one call that cannot go through `adminRequest`: the body is a
+ * `FormData` and the browser must be left to set its own `Content-Type` with
+ * the multipart boundary. Everything else — the token, the failure vocabulary —
+ * matches the rest of the client so callers handle it identically.
+ */
+export async function uploadAdminGalleryImage(
+  file: File,
+  meta: GalleryUploadMeta,
+): Promise<AdminResult<{ data: AdminGalleryImage }>> {
+  if (!API_URL) return fail("offline", "No API URL is configured for this deployment.");
+
+  const token = getAdminToken();
+  if (!token) return fail("offline", "No admin session token is stored in this browser.");
+
+  const form = new FormData();
+  form.append("image", file);
+  form.append("caption", meta.caption);
+  form.append("category", meta.category);
+  form.append("aspect", meta.aspect);
+  form.append("sortOrder", String(meta.sortOrder ?? 0));
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/gallery/upload`, {
+      method: "POST",
+      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+      body: form,
+    });
+  } catch {
+    return fail("network", "The API could not be reached.");
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    forceAdminReauth();
+    return fail("unauthorized", "This admin session is not authorised.", response.status);
+  }
+
+  const payload: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message = str(asRecord(payload).message, `Upload failed (${response.status})`);
+    return fail(response.status >= 500 ? "server" : "invalid", message, response.status);
+  }
+
+  return { ok: true, data: normalizeGalleryImage(asRecord(payload).data) };
+}
+
+export async function deleteAdminGalleryImage(id: string): Promise<AdminResult<{ data: null }>> {
+  const result = await adminRequest(`/gallery/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!result.ok) return result;
+  return { ok: true, data: null };
+}
+
+/* ========================================================================== */
+/*  Today's Special                                                           */
+/* ========================================================================== */
+
+export interface AdminSpecial {
+  id: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  headline?: string;
+  specialPrice?: number;
+  sortOrder: number;
+  item: AdminMenuItem;
+}
+
+function normalizeSpecial(raw: unknown): AdminSpecial {
+  const special = asRecord(raw);
+  const item = asRecord(special.item);
+  const specialPrice = special.specialPrice;
+  return {
+    id: str(special.id),
+    date: str(special.date).slice(0, 10),
+    headline: optionalStr(special.headline),
+    specialPrice: typeof specialPrice === "number" ? specialPrice : undefined,
+    sortOrder: num(special.sortOrder),
+    item: normalizeMenuItem(item),
+  };
+}
+
+/** Curated specials from today forward. Past days are history, not a plan. */
+export async function listAdminSpecials(
+  signal?: AbortSignal,
+): Promise<AdminResult<{ data: AdminSpecial[] }>> {
+  const result = await adminRequest("/specials", { signal });
+  if (!result.ok) return result;
+  return { ok: true, data: rows(result.payload).map(normalizeSpecial) };
+}
+
+export interface SpecialInput {
+  /** Menu item id, slug or code — the API resolves all three. */
+  menuItem: string;
+  date: string;
+  specialPrice?: number;
+  headline?: string;
+  sortOrder: number;
+}
+
+export async function createAdminSpecial(
+  input: SpecialInput,
+): Promise<AdminResult<{ data: AdminSpecial }>> {
+  const result = await adminRequest("/specials", { method: "POST", body: input });
+  if (!result.ok) return result;
+  return { ok: true, data: normalizeSpecial(asRecord(result.payload).data) };
+}
+
+export interface SpecialPatch {
+  specialPrice?: number | null;
+  headline?: string | null;
+  sortOrder?: number;
+  date?: string;
+}
+
+export async function updateAdminSpecial(
+  id: string,
+  patch: SpecialPatch,
+): Promise<AdminResult<{ data: AdminSpecial }>> {
+  const result = await adminRequest(`/specials/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: patch,
+  });
+  if (!result.ok) return result;
+  return { ok: true, data: normalizeSpecial(asRecord(result.payload).data) };
+}
+
+export async function deleteAdminSpecial(id: string): Promise<AdminResult<{ data: null }>> {
+  const result = await adminRequest(`/specials/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!result.ok) return result;
+  return { ok: true, data: null };
 }
