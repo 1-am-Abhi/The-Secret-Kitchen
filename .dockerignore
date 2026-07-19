@@ -44,8 +44,3 @@ README.md
 railway.toml
 server/render.yaml
 server/README.md
-
-# The API's own Dockerfile, used for standalone builds from inside server/.
-# The root Dockerfile is the one Railway builds.
-server/Dockerfile
-server/.dockerignore

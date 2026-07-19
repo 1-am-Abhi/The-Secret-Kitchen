@@ -14,22 +14,40 @@
 # Everything it copies is scoped to server/. The Next.js app in web/ is never
 # read (and is excluded from the context entirely by .dockerignore).
 #
-# `server/Dockerfile` still exists for running the API standalone from inside
-# that directory. If you change build steps in one, change them in both.
+# This is the ONLY Dockerfile in the repository, and railway.toml pins the
+# build to it by path. There was previously a second one in server/; the two
+# drifted apart, and editing that one had no effect on the deploy because
+# Railway never read it. Keep it that way — one image definition, one truth.
+#
+# BASE IMAGE: Debian, not Alpine. prisma/schema.prisma declares the binary
+# target `debian-openssl-3.0.x`. Alpine is musl and would need
+# `linux-musl-openssl-3.0.x`; running the Debian engine there is what produced
+# "Prisma failed to detect libssl" and "Could not parse schema engine
+# response" at runtime. The image and the declared target must agree.
 # ==========================================================================
 
 # --------------------------- Stage 1: build -------------------------------
-FROM node:22-alpine AS builder
+FROM node:22-bookworm-slim AS builder
 
 WORKDIR /app
+
+# Prisma's query engine links against OpenSSL. bookworm-slim ships without it,
+# and without this the engine fails to load rather than failing to build.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 # Manifests first: this layer is only invalidated when dependencies actually
 # change, so ordinary source edits reuse the cached `npm ci`.
 COPY server/package.json server/package-lock.json ./
 RUN npm ci
 
-# The Prisma schema must be present before `npm run build`, which runs
-# `prisma generate` ahead of tsc.
+# The schema must land before `npm run build`, because that script now runs
+# `prisma generate` ahead of tsc. It previously did not: `build` was a bare
+# `tsc`, so the compiler met an ungenerated @prisma/client and failed with ~124
+# errors of the form "Module '@prisma/client' has no exported member
+# 'OrderStatus'". Generation is not optional — every model, enum and
+# `Prisma.*WhereInput` type the API imports is emitted by it.
 COPY server/prisma ./prisma
 COPY server/tsconfig.json ./
 COPY server/src ./src
@@ -45,32 +63,46 @@ RUN npm run build
 # semantics of COPY into an existing directory, and a stale or half-copied
 # client fails at runtime with "@prisma/client did not initialize yet" — a
 # crash on boot, long after the build reported success.
-FROM node:22-alpine AS deps
+FROM node:22-bookworm-slim AS deps
 
 WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY server/package.json server/package-lock.json ./
 COPY server/prisma ./prisma
 
-# The Prisma CLI arrives transitively (@prisma/client depends on prisma), so it
-# is present even under --omit=dev. `--no-install` is deliberate: it makes the
-# build FAIL LOUDLY if a future Prisma upgrade stops shipping the CLI that way,
-# rather than silently downloading it here and again on every deploy.
+# `prisma` is a production dependency, not a dev one, so it survives
+# --omit=dev. It has to: this stage generates the client, and Railway's
+# preDeployCommand runs `prisma migrate deploy` against the runtime image.
+#
+# It used to be a devDependency, on the assumption that the CLI arrived
+# transitively via @prisma/client. It does not — @prisma/client@5 declares no
+# dependencies at all — so `npx --no-install prisma generate` had nothing to
+# run. `--no-install` is kept deliberately: it makes this fail loudly at build
+# time rather than silently downloading the CLI on every deploy.
 RUN npm ci --omit=dev && npx --no-install prisma generate
 
 # --------------------------- Stage 3: runtime -----------------------------
-FROM node:22-alpine AS runner
+FROM node:22-bookworm-slim AS runner
 
 # dumb-init reaps zombies and forwards SIGTERM to node, which is what makes the
 # graceful shutdown in src/index.ts actually fire under a container runtime.
 # Without it node runs as PID 1 and ignores SIGTERM, so Railway would hard-kill
 # the process mid-request on every redeploy.
-RUN apk add --no-cache dumb-init
+#
+# openssl is required here too, not just at build time — the query engine loads
+# it in the running container.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends dumb-init openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
 WORKDIR /app
 
-# node:22-alpine already ships an unprivileged `node` user (uid 1000).
+# node:22-bookworm-slim already ships an unprivileged `node` user (uid 1000).
 COPY --from=deps    --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/prisma ./prisma
