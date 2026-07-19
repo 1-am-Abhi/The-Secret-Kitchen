@@ -596,7 +596,22 @@ export async function runSeed(): Promise<void> {
   await seedFaqs();
   await seedGallery();
   await seedAdmin();
-  await seedDemoTransactions(itemIds, planIds);
+
+  /**
+   * Demo orders, customers, subscriptions and newsletter rows are OPT-IN and
+   * off by default.
+   *
+   * They exist so a fresh local checkout has something to look at, but seeding
+   * them into a real deployment would put fabricated revenue and fake customer
+   * names straight onto the dashboard — numbers the owner might then believe.
+   * Catalogue content (menu, categories, plans, offers, FAQs, gallery) is real
+   * business configuration and is always seeded.
+   */
+  if (env.SEED_DEMO_DATA) {
+    await seedDemoTransactions(itemIds, planIds);
+  } else {
+    log("demo transactions: skipped (set SEED_DEMO_DATA=true to include them)");
+  }
 
   // eslint-disable-next-line no-console
   console.log("\nSeed complete.\n");

@@ -52,6 +52,13 @@ const envSchema = z.object({
   BODY_LIMIT: z.string().default("256kb"),
 
   LOG_REQUESTS: booleanish.default("true"),
+
+  /**
+   * Seeds demo orders, customers and subscriptions. OFF by default — seeding
+   * these into a real deployment would put fabricated revenue on the dashboard.
+   * Only ever enable it locally.
+   */
+  SEED_DEMO_DATA: booleanish.default("false"),
 });
 
 const parsed = envSchema.safeParse(process.env);
