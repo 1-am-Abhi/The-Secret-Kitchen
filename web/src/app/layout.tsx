@@ -85,7 +85,25 @@ export default function RootLayout({
           Skip to main content
         </a>
 
-        {children}
+        {/*
+          Horizontal overflow is clipped HERE rather than on html or body.
+
+          Entrance animations translate elements in from ±32px, which on a
+          narrow screen briefly pushes content past the viewport. Clipping is
+          the cure, but where it is applied matters enormously: with the clip on
+          html, Radix resolved every popover against the wrong box once the page
+          was scrolled, and the admin account menu opened ~700px above a 900px
+          viewport — open and correct in the DOM, but nowhere a person could
+          click it.
+
+          Radix portals mount onto body, so this wrapper sits inside the clip
+          while every dropdown, dialog and tooltip sits outside it. Both
+          problems are solved without either fighting the other.
+
+          `clip` not `hidden`: hidden makes this a scroll container and silently
+          breaks `position: sticky` on the navbar and the menu filter bar.
+        */}
+        <div className="overflow-x-clip">{children}</div>
 
         <JsonLd data={[organizationSchema(), localBusinessSchema(), websiteSchema()]} />
       </body>
