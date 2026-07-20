@@ -38,7 +38,7 @@ const envSchema = z.object({
    * link. Stored as digits; a bare 10-digit Indian number is prefixed with 91
    * when the wa.me URL is built.
    */
-  BUSINESS_WHATSAPP: z.string().min(10).default("919876543210"),
+  BUSINESS_WHATSAPP: z.string().min(10).default("919296902817"),
   BUSINESS_NAME: z.string().default("The Secret Kitchen"),
   /**
    * FSSAI licence number. Empty by default and deliberately not invented: the

@@ -17,8 +17,8 @@ export const siteConfig = {
   url: env.NEXT_PUBLIC_SITE_URL || "https://thesecretkitchen.in",
 
   contact: {
-    phone: env.NEXT_PUBLIC_PHONE || "+91 98765 43210",
-    whatsapp: env.NEXT_PUBLIC_WHATSAPP || "+91 98765 43210",
+    phone: env.NEXT_PUBLIC_PHONE || "+91 92969 02817",
+    whatsapp: env.NEXT_PUBLIC_WHATSAPP || "+91 92969 02817",
     email: env.NEXT_PUBLIC_EMAIL || "hello@thesecretkitchen.in",
     supportEmail: "support@thesecretkitchen.in",
   },
