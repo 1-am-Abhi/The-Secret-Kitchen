@@ -35,6 +35,7 @@ const REQUEST_TIMEOUT_MS = 6_000;
 
 export interface ApiMenuItem {
   id: string;
+  code: string;
   slug: string;
   name: string;
   description: string;
@@ -72,6 +73,7 @@ export interface MenuCatalogue {
 export function toMenuItem(raw: ApiMenuItem): MenuItem {
   return {
     id: raw.id,
+    code: raw.code,
     slug: raw.slug,
     name: raw.name,
     description: raw.description,

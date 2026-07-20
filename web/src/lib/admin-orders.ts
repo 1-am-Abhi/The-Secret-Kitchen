@@ -1465,21 +1465,39 @@ export async function listAdminMenuCatalogue(
  * time this runs, and the timer will catch up regardless. A failure here must
  * never make a successful edit look like it failed.
  */
-async function revalidateStorefrontMenu(): Promise<void> {
-  try {
-    await fetch("/api/revalidate-menu", { method: "POST", cache: "no-store" });
-  } catch {
-    // Swallowed deliberately — see above.
-  }
+function revalidateStorefrontMenu(): void {
+  // Deliberately not awaited. The database write has already succeeded; making
+  // the operator watch a cache purge before the dialog closes turns a 200ms
+  // save into a multi-second one for no benefit they can see.
+  void fetch("/api/revalidate-menu", { method: "POST", cache: "no-store" }).catch(() => {
+    // Best-effort — see above.
+  });
 }
 
-/** Fields an operator can change from the menu screen. */
+/**
+ * Fields an operator can change from the menu screen.
+ *
+ * Mirrors the API's partial update schema. `code` and `slug` are included
+ * because the create form collects them and an edit may legitimately correct a
+ * typo in either.
+ */
 export interface AdminMenuItemPatch {
-  available?: boolean;
-  price?: number;
+  code?: string;
+  slug?: string;
   name?: string;
   description?: string;
+  category?: string;
+  price?: number;
+  compareAtPrice?: number | null;
   imageId?: string;
+  isJain?: boolean;
+  spiceLevel?: string;
+  prepTime?: number;
+  calories?: number;
+  protein?: number;
+  serves?: string;
+  tags?: string[];
+  available?: boolean;
 }
 
 /**
@@ -1500,7 +1518,7 @@ export async function updateAdminMenuItem(
   });
   if (!result.ok) return result;
 
-  await revalidateStorefrontMenu();
+  revalidateStorefrontMenu();
   return { ok: true, item: normalizeMenuItem(asRecord(result.payload).data) };
 }
 
@@ -1515,7 +1533,7 @@ export async function deleteAdminMenuItem(
   });
   if (!result.ok) return result;
 
-  await revalidateStorefrontMenu();
+  revalidateStorefrontMenu();
   return { ok: true, deleted: true };
 }
 
@@ -1552,7 +1570,7 @@ export async function createAdminMenuItem(
   });
   if (!result.ok) return result;
 
-  await revalidateStorefrontMenu();
+  revalidateStorefrontMenu();
   return { ok: true, item: normalizeMenuItem(asRecord(result.payload).data) };
 }
 

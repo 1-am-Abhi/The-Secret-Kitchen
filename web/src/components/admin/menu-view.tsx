@@ -42,9 +42,11 @@ import {
 } from "@/components/ui/select";
 import { categories } from "@/data/menu";
 import {
+  createAdminMenuItem,
   deleteAdminMenuItem,
   listAdminMenuCatalogue,
   updateAdminMenuItem,
+  type AdminMenuItemPatch,
 } from "@/lib/admin-orders";
 import type { CategorySlug, DishTag, MenuItem, SpiceLevel } from "@/types";
 import { cn, formatPrice, slugify } from "@/lib/utils";
@@ -158,13 +160,61 @@ export function MenuView() {
     }
   }
 
-  function saveItem(item: MenuItem) {
-    setItems((current) => {
-      const exists = current.some((candidate) => candidate.id === item.id);
-      return exists
-        ? current.map((candidate) => (candidate.id === item.id ? item : candidate))
-        : [item, ...current];
-    });
+  /**
+   * Create or update, against the database.
+   *
+   * Not optimistic, unlike the toggle: a create has no id until the API assigns
+   * one, and an edit spans a dozen fields where guessing what the server made
+   * of them is worse than the half-second wait. The catalogue is re-read
+   * afterwards so what the panel shows is what was actually stored.
+   */
+  async function saveItem(item: MenuItem): Promise<boolean> {
+    setSaveError(null);
+    const isExisting = items.some((candidate) => candidate.id === item.id);
+
+    const fields: AdminMenuItemPatch = {
+      code: item.code ?? "",
+      slug: item.slug,
+      name: item.name,
+      description: item.description,
+      category: item.category,
+      price: item.price,
+      compareAtPrice: item.compareAtPrice ?? null,
+      imageId: item.imageId,
+      isJain: item.isJain ?? false,
+      spiceLevel: item.spiceLevel,
+      prepTime: item.prepTime,
+      calories: item.calories,
+      serves: item.serves,
+      tags: item.tags,
+      available: item.available,
+      ...(item.protein != null ? { protein: item.protein } : {}),
+    };
+
+    const result = isExisting
+      ? await updateAdminMenuItem(item.id, fields)
+      : await createAdminMenuItem({
+          ...fields,
+          code: fields.code ?? "",
+          slug: fields.slug ?? "",
+          name: fields.name ?? "",
+          description: fields.description ?? "",
+          category: fields.category ?? "",
+          price: fields.price ?? 0,
+          imageId: fields.imageId ?? "",
+          compareAtPrice: fields.compareAtPrice ?? undefined,
+        });
+
+    if (!result.ok) {
+      setSaveError(result.message);
+      return false;
+    }
+
+    // Refresh in the background. The write is already committed, so holding the
+    // dialog open until a full catalogue re-read completes only makes a saved
+    // change feel like a stuck one.
+    void reload();
+    return true;
   }
 
   const deleteTarget = deleteId ? items.find((item) => item.id === deleteId) : undefined;
@@ -612,8 +662,24 @@ function PriceEditor({
 /*  Create / edit form                                                        */
 /* ========================================================================== */
 
+/**
+ * A first guess at the kitchen code: category initials plus a slice of the
+ * name, e.g. "north-indian" + "Paneer Tikka" -> "ni-paneer". The API requires
+ * a unique code and will reject a duplicate, so this is a starting point the
+ * operator can overwrite, never a silent invention.
+ */
+function suggestCode(draft: MenuItem): string {
+  const prefix = draft.category
+    .split("-")
+    .map((part) => part[0] ?? "")
+    .join("");
+  const name = slugify(draft.name || "dish").split("-")[0] ?? "dish";
+  return `${prefix}-${name}`.slice(0, 40);
+}
+
 const BLANK: MenuItem = {
   id: "",
+  code: "",
   slug: "",
   name: "",
   description: "",
@@ -641,28 +707,33 @@ function DishFormDialog({
   open: boolean;
   item: MenuItem | null;
   onOpenChange: (open: boolean) => void;
-  onSave: (item: MenuItem) => void;
+  onSave: (item: MenuItem) => Promise<boolean>;
 }) {
   const [draft, setDraft] = React.useState<MenuItem>(item ?? BLANK);
+  const [saving, setSaving] = React.useState(false);
 
   // Re-seed the form whenever the dialog opens against a different dish.
   React.useEffect(() => {
-    if (open) setDraft(item ?? BLANK);
+    if (open) {
+      setDraft(item ?? BLANK);
+      setSaving(false);
+    }
   }, [open, item]);
 
   function update<K extends keyof MenuItem>(key: K, value: MenuItem[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
-  function submit(event: React.FormEvent) {
+  async function submit(event: React.FormEvent) {
     event.preventDefault();
     const slug = draft.slug || slugify(draft.name);
-    onSave({
-      ...draft,
-      slug,
-      id: draft.id || `new-${slug}`,
-    });
-    onOpenChange(false);
+
+    setSaving(true);
+    // The dialog stays open when the write fails, so the operator keeps
+    // everything they typed and can read the error above the table.
+    const saved = await onSave({ ...draft, slug, code: draft.code?.trim() || suggestCode(draft) });
+    setSaving(false);
+    if (saved) onOpenChange(false);
   }
 
   return (
@@ -684,6 +755,21 @@ function DishFormDialog({
                 value={draft.name}
                 onChange={(event) => update("name", event.target.value)}
                 placeholder="Paneer Butter Masala"
+              />
+            </Field>
+
+            <Field
+              label="Kitchen code"
+              htmlFor="dish-code"
+              hint="Short reference the kitchen calls the dish by — must be unique"
+              className="sm:col-span-2"
+            >
+              <Input
+                id="dish-code"
+                required
+                value={draft.code ?? ""}
+                onChange={(event) => update("code", event.target.value)}
+                placeholder={suggestCode(draft)}
               />
             </Field>
 
@@ -847,7 +933,9 @@ function DishFormDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit">{item ? "Save changes" : "Add dish"}</Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Saving…" : item ? "Save changes" : "Add dish"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

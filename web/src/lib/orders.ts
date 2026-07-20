@@ -361,23 +361,70 @@ async function orderRequest<T>(path: string, init?: RequestInit): Promise<T> {
    ========================================================================== */
 
 /**
- * `POST /api/orders`. Resolves only once the API has confirmed the row was
- * committed; every other outcome rejects with an `OrderError`.
+ * Bring an order's line items onto the shape this app renders.
+ *
+ * The API and the UI use different names for the same three fields, and
+ * nothing translated between them — the responses were cast straight to
+ * `CreatedOrder`, so `item.total` was silently `undefined` and every line on
+ * the confirmation page priced itself "₹NaN" in front of the customer who had
+ * just paid. Add-on labels were being dropped for the same reason.
+ *
+ *   API            UI
+ *   id          -> itemId
+ *   lineTotal   -> total
+ *   addOns      -> addOnLabels
+ *
+ * Falls back to `unitPrice × quantity` if `lineTotal` is ever missing, so a
+ * line can go wrong by a few rupees of add-ons rather than rendering as NaN.
  */
-export function createOrder(input: CreateOrderInput): Promise<CreatedOrder> {
-  return orderRequest<CreatedOrder>("/orders", {
-    method: "POST",
-    body: JSON.stringify(input),
+function normaliseOrderItems(raw: unknown): OrderItemLine[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw.map((entry) => {
+    const item = (entry ?? {}) as Record<string, unknown>;
+    const quantity = Number(item.quantity) || 0;
+    const unitPrice = Number(item.unitPrice) || 0;
+    const lineTotal = Number(item.lineTotal ?? item.total);
+    const addOns = item.addOns ?? item.addOnLabels;
+
+    return {
+      itemId: String(item.itemId ?? item.id ?? ""),
+      name: String(item.name ?? ""),
+      quantity,
+      unitPrice,
+      total: Number.isFinite(lineTotal) ? lineTotal : unitPrice * quantity,
+      ...(Array.isArray(addOns) && addOns.length ? { addOnLabels: addOns.map(String) } : {}),
+      ...(item.note != null ? { note: String(item.note) } : {}),
+    };
   });
 }
 
+/** Apply the item mapping to any order-shaped payload. */
+function normaliseOrder<T extends { items?: unknown }>(order: T): T {
+  return { ...order, items: normaliseOrderItems(order.items) };
+}
+
+/**
+ * `POST /api/orders`. Resolves only once the API has confirmed the row was
+ * committed; every other outcome rejects with an `OrderError`.
+ */
+export async function createOrder(input: CreateOrderInput): Promise<CreatedOrder> {
+  const order = await orderRequest<CreatedOrder>("/orders", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return normaliseOrder(order);
+}
+
 /** `GET /api/orders/track/:orderNumber`. The order number is the credential. */
-export function trackOrder(orderNumber: string): Promise<TrackedOrder> {
+export async function trackOrder(orderNumber: string): Promise<TrackedOrder> {
   const normalised = normaliseOrderNumber(orderNumber);
   if (!ORDER_NUMBER_PATTERN.test(normalised)) {
     throw new OrderError("NOT_FOUND", "That doesn't look like one of our order numbers.");
   }
-  return orderRequest<TrackedOrder>(`/orders/track/${encodeURIComponent(normalised)}`);
+  return normaliseOrder(
+    await orderRequest<TrackedOrder>(`/orders/track/${encodeURIComponent(normalised)}`),
+  );
 }
 
 /**

@@ -38,6 +38,8 @@ export interface MenuCategory {
 
 export interface MenuItem {
   id: string;
+  /** Kitchen-facing short code (e.g. "nin-06"). Required by the API on create. */
+  code?: string;
   slug: string;
   name: string;
   description: string;
