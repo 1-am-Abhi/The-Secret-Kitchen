@@ -3,7 +3,7 @@ import { Sparkles } from "lucide-react";
 import { DishCard } from "@/components/menu/dish-card";
 import { Section, SectionHeading } from "@/components/layout/section";
 import { Stagger, StaggerItem } from "@/components/motion";
-import { getTodaysSpecial } from "@/data/menu";
+import { getMenuCatalogue, pickTodaysSpecial } from "@/lib/menu-data";
 
 /**
  * Today's Special.
@@ -11,8 +11,9 @@ import { getTodaysSpecial } from "@/data/menu";
  * The selection rotates daily from a seeded offset (see getTodaysSpecial), so
  * the section stays fresh without needing a database or an editor to curate it.
  */
-export function TodaysSpecial() {
-  const specials = getTodaysSpecial(4);
+export async function TodaysSpecial() {
+  const { items } = await getMenuCatalogue();
+  const specials = pickTodaysSpecial(items, 4);
   const today = new Intl.DateTimeFormat("en-IN", {
     weekday: "long",
     day: "numeric",

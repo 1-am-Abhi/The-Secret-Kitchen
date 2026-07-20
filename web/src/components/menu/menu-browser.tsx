@@ -17,9 +17,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/form-controls";
-import { categories, menuItems, priceBounds } from "@/data/menu";
+import { priceBounds } from "@/data/menu";
 import { cn, formatPrice } from "@/lib/utils";
-import type { CategorySlug, MenuItem } from "@/types";
+import type { CategorySlug, MenuCategory, MenuItem } from "@/types";
 
 type SortKey = "popular" | "price-asc" | "price-desc" | "rating" | "name";
 
@@ -61,9 +61,16 @@ const PRICE_BANDS = [
  * single most important page for search — the dish grid must be in the HTML.
  */
 export function MenuBrowser({
+  items: menuItems,
+  categories,
   initialCategory = "all",
   initialQuery = "",
 }: {
+  /* The live catalogue, read from PostgreSQL by the page above. Passed in
+     rather than imported so that switching a dish off in the admin panel
+     actually removes it from here. */
+  items: MenuItem[];
+  categories: MenuCategory[];
   initialCategory?: CategorySlug | "all";
   initialQuery?: string;
 }) {
@@ -120,7 +127,7 @@ export function MenuBrowser({
     });
 
     return sortItems(filtered, sort);
-  }, [query, category, priceBand, activeTags, jainOnly, sort]);
+  }, [menuItems, query, category, priceBand, activeTags, jainOnly, sort]);
 
   const activeFilterCount =
     activeTags.length + (priceBand !== "all" ? 1 : 0) + (jainOnly ? 1 : 0);

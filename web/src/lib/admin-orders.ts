@@ -25,6 +25,9 @@
  *     A renamed or absent field degrades one cell, it does not crash the table.
  */
 
+import { toMenuItem, type ApiMenuItem } from "@/lib/menu-data";
+import type { MenuItem } from "@/types";
+
 import type { StatusTone } from "@/components/admin/status-pill";
 
 /* ========================================================================== */
@@ -1418,12 +1421,139 @@ export async function listAdminMenuCategories(
 export async function listAdminMenuItems(
   signal?: AbortSignal,
 ): Promise<AdminResult<{ data: AdminMenuItem[] }>> {
+  // `available=all` is essential: the endpoint defaults to available-only, so
+  // without it the panel would hide exactly the dishes an operator has switched
+  // off and needs to switch back on.
+  //
   // The catalogue is 58 rows today and the endpoint caps `limit` at 100; one
   // page is deliberate, and the count assertion lives in the caller's UI copy.
-  const result = await adminRequest("/menu?limit=100", { signal, auth: "optional" });
+  const result = await adminRequest("/menu?limit=100&available=all", {
+    signal,
+    auth: "optional",
+  });
   if (!result.ok) return result;
 
   return { ok: true, data: rows(result.payload).map(normalizeMenuItem) };
+}
+
+/**
+ * The catalogue as the admin screen needs it: every dish including the ones
+ * switched off, mapped to the same rich `MenuItem` the storefront uses so the
+ * panel can keep rendering tags, spice level and add-ons.
+ */
+export async function listAdminMenuCatalogue(
+  signal?: AbortSignal,
+): Promise<AdminResult<{ items: MenuItem[] }>> {
+  const result = await adminRequest("/menu?limit=100&available=all", {
+    signal,
+    auth: "optional",
+  });
+  if (!result.ok) return result;
+
+  return { ok: true, items: rows(result.payload).map((raw) => toMenuItem(raw as ApiMenuItem)) };
+}
+
+/**
+ * Ask the storefront to drop its cached catalogue.
+ *
+ * The menu pages are statically generated and revalidate on a timer, so without
+ * this an availability change would not reach customers for up to a minute.
+ * During service that is too long to wait to find out whether you actually took
+ * a sold-out dish off sale.
+ *
+ * Best-effort by design: the write to PostgreSQL has already succeeded by the
+ * time this runs, and the timer will catch up regardless. A failure here must
+ * never make a successful edit look like it failed.
+ */
+async function revalidateStorefrontMenu(): Promise<void> {
+  try {
+    await fetch("/api/revalidate-menu", { method: "POST", cache: "no-store" });
+  } catch {
+    // Swallowed deliberately — see above.
+  }
+}
+
+/** Fields an operator can change from the menu screen. */
+export interface AdminMenuItemPatch {
+  available?: boolean;
+  price?: number;
+  name?: string;
+  description?: string;
+  imageId?: string;
+}
+
+/**
+ * Persist a change to one dish.
+ *
+ * This is what makes the availability toggle real. It used to be local React
+ * state — the switch moved, nothing was written, and a refresh put it back.
+ */
+export async function updateAdminMenuItem(
+  id: string,
+  patch: AdminMenuItemPatch,
+  signal?: AbortSignal,
+): Promise<AdminResult<{ item: AdminMenuItem }>> {
+  const result = await adminRequest(`/menu/items/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: patch,
+    ...(signal ? { signal } : {}),
+  });
+  if (!result.ok) return result;
+
+  await revalidateStorefrontMenu();
+  return { ok: true, item: normalizeMenuItem(asRecord(result.payload).data) };
+}
+
+/** Remove a dish from the catalogue entirely. */
+export async function deleteAdminMenuItem(
+  id: string,
+  signal?: AbortSignal,
+): Promise<AdminResult<{ deleted: true }>> {
+  const result = await adminRequest(`/menu/items/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    ...(signal ? { signal } : {}),
+  });
+  if (!result.ok) return result;
+
+  await revalidateStorefrontMenu();
+  return { ok: true, deleted: true };
+}
+
+/** Everything the API insists on when a dish is created. */
+export interface AdminMenuItemDraft {
+  code: string;
+  slug: string;
+  name: string;
+  description: string;
+  category: string;
+  price: number;
+  imageId: string;
+  compareAtPrice?: number;
+  isJain?: boolean;
+  spiceLevel?: string;
+  prepTime?: number;
+  calories?: number;
+  protein?: number;
+  serves?: string;
+  tags?: string[];
+  addOns?: { id: string; label: string; price: number }[];
+  available?: boolean;
+}
+
+/** Add a dish. It appears on the storefront as soon as this returns. */
+export async function createAdminMenuItem(
+  draft: AdminMenuItemDraft,
+  signal?: AbortSignal,
+): Promise<AdminResult<{ item: AdminMenuItem }>> {
+  const result = await adminRequest("/menu/items", {
+    method: "POST",
+    body: draft,
+    ...(signal ? { signal } : {}),
+  });
+  if (!result.ok) return result;
+
+  await revalidateStorefrontMenu();
+  return { ok: true, item: normalizeMenuItem(asRecord(result.payload).data) };
 }
 
 /* ========================================================================== */

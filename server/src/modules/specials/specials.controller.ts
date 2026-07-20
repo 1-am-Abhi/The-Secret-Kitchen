@@ -36,7 +36,14 @@ export const getTodaysSpecials = asyncHandler(async (req: Request, res: Response
   const date = query.date ? toDateOnly(query.date) : toDateOnly(new Date());
 
   const curated = await prisma.dailySpecial.findMany({
-    where: { date },
+    /*
+     * `menuItem.available` is not optional here. A special is curated days in
+     * advance; if the kitchen runs out and switches the dish off, this endpoint
+     * would otherwise keep featuring it on the home page — the one place a
+     * sold-out dish is most prominent. The rotating fallback below has always
+     * filtered on it; the curated branch did not.
+     */
+    where: { date, menuItem: { available: true } },
     include: { menuItem: { include: ITEM_INCLUDE } },
     orderBy: { sortOrder: "asc" },
     take: query.limit,

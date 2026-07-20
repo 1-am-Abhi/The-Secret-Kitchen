@@ -15,7 +15,11 @@ import {
 
 import { Section, SectionHeading } from "@/components/layout/section";
 import { Stagger, StaggerItem } from "@/components/motion";
-import { categories, countItemsInCategory, getCategoryStartingPrice } from "@/data/menu";
+import {
+  countInCategory,
+  getMenuCatalogue,
+  startingPriceInCategory,
+} from "@/lib/menu-data";
 import { formatPrice } from "@/lib/utils";
 
 /**
@@ -36,7 +40,8 @@ const ICONS: Record<string, LucideIcon> = {
   CupSoda,
 };
 
-export function PopularCategories() {
+export async function PopularCategories() {
+  const { items, categories } = await getMenuCatalogue();
   return (
     <Section tone="muted">
       <div className="container-page">
@@ -66,8 +71,8 @@ export function PopularCategories() {
                       {category.name}
                     </span>
                     <span className="text-[11px] leading-snug text-ink-400">
-                      {countItemsInCategory(category.slug)} dishes · from{" "}
-                      {formatPrice(getCategoryStartingPrice(category.slug))}
+                      {countInCategory(items, category.slug)} dishes · from{" "}
+                      {formatPrice(startingPriceInCategory(items, category.slug))}
                     </span>
                   </span>
                 </Link>

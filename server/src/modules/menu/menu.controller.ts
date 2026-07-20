@@ -119,7 +119,12 @@ export const getMenuItem = asyncHandler(async (req: Request, res: Response) => {
   const slug = String(req.params.slug);
 
   const item = await prisma.menuItem.findUnique({ where: { slug }, include: ITEM_INCLUDE });
-  if (!item) throw AppError.notFound(`No dish found for "${slug}".`);
+  /*
+   * An unavailable dish is treated as absent rather than shown as off sale.
+   * This is a public route, so anything it returns is customer-facing; the
+   * admin panel reads the catalogue through `/menu?available=all` instead.
+   */
+  if (!item || !item.available) throw AppError.notFound(`No dish found for "${slug}".`);
 
   const related = await prisma.menuItem.findMany({
     where: { categoryId: item.categoryId, id: { not: item.id }, available: true },

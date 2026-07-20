@@ -40,7 +40,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { categories, menuItems } from "@/data/menu";
+import { categories } from "@/data/menu";
+import {
+  deleteAdminMenuItem,
+  listAdminMenuCatalogue,
+  updateAdminMenuItem,
+} from "@/lib/admin-orders";
 import type { CategorySlug, DishTag, MenuItem, SpiceLevel } from "@/types";
 import { cn, formatPrice, slugify } from "@/lib/utils";
 
@@ -65,13 +70,40 @@ function tagLabel(tag: DishTag): string {
 }
 
 export function MenuView() {
-  const [items, setItems] = React.useState<MenuItem[]>(menuItems);
+  /*
+   * The catalogue comes from PostgreSQL, not from the bundled file.
+   *
+   * This screen used to seed itself from `@/data/menu` and keep every edit in
+   * React state, which meant the availability toggle wrote nothing: it moved,
+   * the storefront kept selling the dish, and a refresh put the switch back.
+   */
+  const [items, setItems] = React.useState<MenuItem[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
   const [category, setCategory] = React.useState<CategoryFilter>("all");
   const [view, setView] = React.useState<ViewMode>("grid");
   const [editing, setEditing] = React.useState<MenuItem | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [deleteId, setDeleteId] = React.useState<string | null>(null);
+
+  const reload = React.useCallback(async (signal?: AbortSignal) => {
+    const result = await listAdminMenuCatalogue(signal);
+    if (result.ok) {
+      setItems(result.items);
+      setLoadError(null);
+    } else {
+      setLoadError(result.message);
+    }
+    setLoading(false);
+  }, []);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    void reload(controller.signal);
+    return () => controller.abort();
+  }, [reload]);
 
   const counts = React.useMemo(() => {
     const map = new Map<CategoryFilter, number>([["all", items.length]]);
@@ -93,16 +125,37 @@ export function MenuView() {
       );
   }, [items, category, query]);
 
-  function toggleAvailability(id: string, available: boolean) {
+  /**
+   * Optimistic, then reconciled against the server.
+   *
+   * The switch moves immediately because waiting on a round trip during service
+   * feels broken, but a failed write is put straight back rather than leaving
+   * the panel claiming a dish is off sale while customers can still order it.
+   */
+  async function toggleAvailability(id: string, available: boolean) {
+    const previous = items;
+    setSaveError(null);
     setItems((current) =>
       current.map((item) => (item.id === id ? { ...item, available } : item)),
     );
+
+    const result = await updateAdminMenuItem(id, { available });
+    if (!result.ok) {
+      setItems(previous);
+      setSaveError(result.message);
+    }
   }
 
-  function updatePrice(id: string, price: number) {
-    setItems((current) =>
-      current.map((item) => (item.id === id ? { ...item, price } : item)),
-    );
+  async function updatePrice(id: string, price: number) {
+    const previous = items;
+    setSaveError(null);
+    setItems((current) => current.map((item) => (item.id === id ? { ...item, price } : item)));
+
+    const result = await updateAdminMenuItem(id, { price });
+    if (!result.ok) {
+      setItems(previous);
+      setSaveError(result.message);
+    }
   }
 
   function saveItem(item: MenuItem) {
@@ -229,6 +282,23 @@ export function MenuView() {
         }
       />
 
+      {loadError && (
+        <p
+          role="alert"
+          className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+        >
+          Could not load the menu from the database: {loadError}
+        </p>
+      )}
+      {saveError && (
+        <p
+          role="alert"
+          className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+        >
+          That change was not saved: {saveError}
+        </p>
+      )}
+
       <Toolbar>
         <SearchField
           label="Search dishes by name or description"
@@ -285,7 +355,13 @@ export function MenuView() {
         ]}
       />
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <EmptyState
+          icon={UtensilsCrossed}
+          title="Loading the menu…"
+          description="Reading the catalogue from the database."
+        />
+      ) : filtered.length === 0 ? (
         <EmptyState
           icon={UtensilsCrossed}
           title="No dishes match"
@@ -345,9 +421,18 @@ export function MenuView() {
         description="The dish is removed from the storefront, search and every category rail. Past orders keep their record."
         confirmLabel="Delete dish"
         icon={Trash2}
-        onConfirm={() =>
-          deleteId && setItems((current) => current.filter((item) => item.id !== deleteId))
-        }
+        onConfirm={async () => {
+          if (!deleteId) return;
+          const previous = items;
+          setSaveError(null);
+          setItems((current) => current.filter((item) => item.id !== deleteId));
+
+          const result = await deleteAdminMenuItem(deleteId);
+          if (!result.ok) {
+            setItems(previous);
+            setSaveError(result.message);
+          }
+        }}
       />
     </div>
   );

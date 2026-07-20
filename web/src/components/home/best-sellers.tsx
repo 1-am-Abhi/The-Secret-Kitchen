@@ -1,7 +1,7 @@
 import { DishCard } from "@/components/menu/dish-card";
 import { Section, SectionHeading } from "@/components/layout/section";
 import { Stagger, StaggerItem } from "@/components/motion";
-import { getBestSellers } from "@/data/menu";
+import { getMenuCatalogue, pickBestSellers } from "@/lib/menu-data";
 
 /**
  * Best sellers, ranked by review volume.
@@ -9,8 +9,9 @@ import { getBestSellers } from "@/data/menu";
  * Renders as a horizontal snap-scroll rail on mobile — far better than a
  * cramped two-column grid — and settles into a four-up grid from `lg`.
  */
-export function BestSellers() {
-  const items = getBestSellers(8);
+export async function BestSellers() {
+  const { items: catalogue } = await getMenuCatalogue();
+  const items = pickBestSellers(catalogue, 8);
 
   return (
     <Section tone="default">

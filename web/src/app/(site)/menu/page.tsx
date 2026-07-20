@@ -4,7 +4,8 @@ import { Leaf, Timer, Truck } from "lucide-react";
 import { MenuBrowser } from "@/components/menu/menu-browser";
 import { Reveal } from "@/components/motion";
 import { JsonLd } from "@/components/seo/json-ld";
-import { categories, menuItems } from "@/data/menu";
+import { getMenuCatalogue } from "@/lib/menu-data";
+import type { MenuCategory, MenuItem } from "@/types";
 import type { CategorySlug } from "@/types";
 import { siteConfig } from "@/config/site";
 import { breadcrumbSchema, buildMetadata } from "@/lib/seo";
@@ -23,7 +24,7 @@ export const metadata: Metadata = buildMetadata({
 });
 
 /** Schema.org Menu so Google can render the dish list directly in results. */
-function menuSchema() {
+function menuSchema(categories: MenuCategory[], menuItems: MenuItem[]) {
   return {
     "@context": "https://schema.org",
     "@type": "Menu",
@@ -67,12 +68,20 @@ const HIGHLIGHTS = [
  * menu URL is a real landing page for long-tail search, and rendering 58 items
  * on the server costs almost nothing.
  */
+/*
+ * Must be a literal: Next requires segment config exports to be statically
+ * analysable, so it cannot be the MENU_REVALIDATE_SECONDS constant. Keep the
+ * two in step — the constant is what `getMenuCatalogue` passes to fetch.
+ */
+export const revalidate = 60;
+
 export default async function MenuPage({
   searchParams,
 }: {
   searchParams: Promise<{ category?: string; q?: string }>;
 }) {
   const params = await searchParams;
+  const { items: menuItems, categories } = await getMenuCatalogue();
   const category = (categories.find((entry) => entry.slug === params.category)?.slug ??
     "all") as CategorySlug | "all";
   const query = params.q ?? "";
@@ -134,13 +143,18 @@ export default async function MenuPage({
         <div className="container-page">
           {/* Filters are resolved on the server so the dish grid ships in the
               initial HTML — see the note in MenuBrowser. */}
-          <MenuBrowser initialCategory={category} initialQuery={query} />
+          <MenuBrowser
+            items={menuItems}
+            categories={categories}
+            initialCategory={category}
+            initialQuery={query}
+          />
         </div>
       </section>
 
       <JsonLd
         data={[
-          menuSchema(),
+          menuSchema(categories, menuItems),
           breadcrumbSchema([
             { name: "Home", path: "/" },
             { name: "Menu", path: "/menu" },
