@@ -312,7 +312,7 @@ export function CheckoutFlow() {
                     id="addressLine1"
                     rows={3}
                     autoComplete="street-address"
-                    placeholder="B-402, Sunrise Residency, Sector 62"
+                    placeholder="House 24, Near Pillar No. 18, New Atwarpur"
                     aria-invalid={Boolean(errors.addressLine1)}
                     aria-describedby={errors.addressLine1 ? "addressLine1-error" : undefined}
                     className="min-h-24"
@@ -342,7 +342,7 @@ export function CheckoutFlow() {
                       inputMode="numeric"
                       maxLength={6}
                       autoComplete="postal-code"
-                      placeholder="201309"
+                      placeholder="804453"
                       aria-invalid={Boolean(errors.pincode)}
                       aria-describedby={errors.pincode ? "pincode-error" : undefined}
                       {...register("pincode")}

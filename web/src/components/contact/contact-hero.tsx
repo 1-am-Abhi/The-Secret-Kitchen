@@ -26,7 +26,7 @@ export function ContactHero() {
           <Reveal delay={0.16}>
             <p className="mt-6 max-w-2xl text-lg leading-relaxed text-ink-600">
               Bulk order for an office lunch, a question about a tiffin plan, an allergy we should
-              know about, or something that went wrong — it reaches a real person at our Sector 62
+              know about, or something that went wrong — it reaches a real person at our Patna
               kitchen, not a ticketing queue.
             </p>
           </Reveal>

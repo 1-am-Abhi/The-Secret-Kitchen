@@ -54,7 +54,7 @@ const DEMO_SUBSCRIPTION: Subscription = {
   nextDeliveryDate: "2026-07-20",
   mealsRemaining: 18,
   skippedDates: [],
-  addressLabel: "Home · Sector 62, Noida",
+  addressLabel: "Home · New Atwarpur, Patna",
 };
 
 const TOTAL_MEALS = 26;

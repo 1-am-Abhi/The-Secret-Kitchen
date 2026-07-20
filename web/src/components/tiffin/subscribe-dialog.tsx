@@ -262,7 +262,7 @@ export function SubscribeDialog({
                   <Input
                     id="sub-address"
                     autoComplete="address-line1"
-                    placeholder="B-402, Sunrise Residency, Sector 62"
+                    placeholder="House 24, Near Pillar No. 18, New Atwarpur"
                     aria-invalid={Boolean(errors.addressLine1)}
                     {...register("addressLine1")}
                   />
@@ -282,7 +282,7 @@ export function SubscribeDialog({
                       inputMode="numeric"
                       maxLength={6}
                       autoComplete="postal-code"
-                      placeholder="201309"
+                      placeholder="804453"
                       aria-invalid={Boolean(errors.pincode)}
                       {...register("pincode")}
                     />

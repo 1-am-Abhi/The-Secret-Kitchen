@@ -24,15 +24,15 @@ export const siteConfig = {
   },
 
   address: {
-    line1: "Shop 14, Ground Floor, Sunrise Plaza",
-    line2: "Sector 62, Noida",
-    city: "Noida",
-    state: "Uttar Pradesh",
-    postalCode: "201309",
+    line1: "Pillar No. 18",
+    line2: "New Atwarpur, Patna",
+    city: "Patna",
+    state: "Bihar",
+    postalCode: "804453",
     country: "IN",
     /** Used for the maps embed and the LocalBusiness JSON-LD geo block. */
-    latitude: 28.6272,
-    longitude: 77.3716,
+    latitude: 25.576141,
+    longitude: 85.1290155,
   },
 
   /** Kitchen service windows. `open`/`close` are 24h "HH:MM" for JSON-LD. */

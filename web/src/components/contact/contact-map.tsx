@@ -17,7 +17,7 @@ export function ContactMap() {
         <SectionHeading
           align="left"
           eyebrow="Find us"
-          title="Sector 62, Noida — walk-in pickup welcome"
+          title="New Atwarpur, Patna — walk-in pickup welcome"
           description={`${fullAddress}. Collection saves you the delivery fee and the food is handed over straight off the pass.`}
           action={{ label: "Open in Google Maps", href: mapsDirectionsUrl() }}
         />
