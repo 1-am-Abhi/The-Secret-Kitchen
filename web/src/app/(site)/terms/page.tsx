@@ -92,7 +92,7 @@ const sections: LegalSection[] = [
     heading: "10. Changes and governing law",
     paragraphs: [
       "We may update these terms from time to time. The version in force is the one published on this page at the moment you place your order.",
-      `These terms are governed by the laws of India, and the courts at Gautam Buddh Nagar, Uttar Pradesh have exclusive jurisdiction. Questions? Write to ${siteConfig.contact.email}.`,
+      `These terms are governed by the laws of India, and the courts at Patna, Bihar have exclusive jurisdiction. Questions? Write to ${siteConfig.contact.email}.`,
     ],
   },
 ];

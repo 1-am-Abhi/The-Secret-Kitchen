@@ -15,7 +15,7 @@ import { breadcrumbSchema, buildMetadata } from "@/lib/seo";
 export const metadata: Metadata = buildMetadata({
   title: "Monthly Tiffin Service — Plans from ₹89 a meal",
   description:
-    "Freshly cooked vegetarian tiffins delivered daily in Noida and Ghaziabad. Student, Regular and Premium plans from ₹89 per meal. Pause, skip or cancel any time — meals never expire.",
+    "Freshly cooked vegetarian tiffins delivered daily across Patna. Student, Regular and Premium plans from ₹89 per meal. Pause, skip or cancel any time — meals never expire.",
   path: "/tiffin",
   keywords: [
     "monthly tiffin service noida",

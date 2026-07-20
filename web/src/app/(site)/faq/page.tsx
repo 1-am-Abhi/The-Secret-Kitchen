@@ -15,7 +15,7 @@ export const metadata = buildMetadata({
     "The Secret Kitchen FAQ",
     "tiffin subscription questions",
     "food delivery refund policy",
-    "Jain food delivery Noida",
+    "Jain food delivery Patna",
     "cloud kitchen hygiene FAQ",
     "pause tiffin subscription",
   ],

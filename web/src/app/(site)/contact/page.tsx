@@ -15,10 +15,10 @@ export const metadata = buildMetadata({
   path: "/contact",
   keywords: [
     "contact The Secret Kitchen",
-    "cloud kitchen Noida contact",
-    "bulk catering enquiry Noida",
+    "cloud kitchen Patna contact",
+    "bulk catering enquiry Patna",
     "tiffin service phone number",
-    "Sector 62 Noida food delivery",
+    "New Atwarpur Patna food delivery",
   ],
 });
 

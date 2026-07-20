@@ -13,7 +13,7 @@ export const metadata = buildMetadata({
   keywords: [
     "The Secret Kitchen gallery",
     "cloud kitchen photos",
-    "veg food photos Noida",
+    "veg food photos Patna",
     "tiffin packaging",
     "kitchen hygiene photos",
   ],

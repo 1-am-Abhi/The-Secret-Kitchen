@@ -139,7 +139,7 @@ export const galleryImages: GalleryImage[] = [
   {
     id: "gal-21",
     imageId: "packaging-3",
-    caption: "Insulated thermal bags loaded for the Sector 62 run",
+    caption: "Insulated thermal bags loaded for the morning Patna run",
     category: "packaging",
     aspect: "landscape",
   },
@@ -148,7 +148,7 @@ export const galleryImages: GalleryImage[] = [
   {
     id: "gal-22",
     imageId: "ambience-1",
-    caption: "Our Sector 62 pickup counter, open for walk-in collection",
+    caption: "Our New Atwarpur pickup counter, open for walk-in collection",
     category: "moments",
     aspect: "landscape",
   },

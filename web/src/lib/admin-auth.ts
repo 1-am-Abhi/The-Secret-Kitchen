@@ -278,3 +278,60 @@ export async function fetchCurrentAdmin(
 
   return { ok: true, admin };
 }
+
+/* ========================================================================== */
+/*  Password change                                                           */
+/* ========================================================================== */
+
+export type ChangePasswordResult = { ok: true } | AdminAuthFailure;
+
+/**
+ * Change the signed-in admin's own password.
+ *
+ * Wraps POST /api/auth/change-password, which re-checks the current password
+ * server-side — this cannot be used to set a password from a stolen token
+ * alone. Validation messages come back from the server rather than being
+ * duplicated here, so the two can never drift apart on the minimum length.
+ */
+export async function changeAdminPassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string,
+  signal?: AbortSignal,
+): Promise<ChangePasswordResult> {
+  if (!API_URL) return fail("offline", NOT_CONFIGURED);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/auth/change-password`, {
+      method: "POST",
+      signal: withTimeout(signal),
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  } catch (error) {
+    if (signal?.aborted) return fail("invalid", "The change was cancelled.");
+    return fail("network", describeFetchFailure(error, false, "the admin API"));
+  }
+
+  const payload: unknown = await response.json().catch(() => null);
+  const body = asRecord(payload);
+
+  if (response.status === 401) {
+    return fail("credentials", str(body.message, "That current password is not correct."), 401);
+  }
+  if (!response.ok) {
+    return fail(
+      response.status >= 500 ? "server" : "invalid",
+      str(body.message, `Could not change the password (${response.status}).`),
+      response.status,
+    );
+  }
+
+  return { ok: true };
+}

@@ -13,7 +13,7 @@ export const metadata = buildMetadata({
   path: "/offers",
   keywords: [
     "The Secret Kitchen offers",
-    "food delivery coupon Noida",
+    "food delivery coupon Patna",
     "tiffin service discount",
     "student food discount",
     "SECRET50 coupon",

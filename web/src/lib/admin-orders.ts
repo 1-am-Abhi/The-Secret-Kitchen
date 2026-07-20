@@ -818,7 +818,7 @@ export function orderLocalDay(iso: string): string {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
-/** "B-402, Sunrise Residency, Opp. Fortis, Noida 201309" */
+/** "House 24, Near Pillar No. 18, New Atwarpur, Patna 804453" */
 export function formatDeliveryAddress(delivery: AdminOrderDelivery): string {
   return [
     delivery.line1,

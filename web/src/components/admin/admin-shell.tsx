@@ -193,9 +193,9 @@ function AccountMenu() {
   const session = useAdminSession();
 
   const items = [
-    { label: "Profile", icon: UserRound },
-    { label: "Settings", icon: Settings },
-    { label: "Help & support", icon: LifeBuoy },
+    { label: "Profile", icon: UserRound, href: "/admin/profile" },
+    { label: "Settings", icon: Settings, href: "/admin/settings" },
+    { label: "Help & support", icon: LifeBuoy, href: "/admin/help" },
   ];
 
   // `session` is null only when the panel runs without a configured API, where
@@ -246,12 +246,14 @@ function AccountMenu() {
           <DropdownMenu.Separator className="my-1 h-px bg-ink-100" />
 
           {items.map((item) => (
-            <DropdownMenu.Item
-              key={item.label}
-              className="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-ink-700 outline-none transition-colors data-[highlighted]:bg-ink-50 data-[highlighted]:text-ink-900"
-            >
-              <item.icon className="size-4 text-ink-400" aria-hidden />
-              {item.label}
+            <DropdownMenu.Item key={item.label} asChild>
+              <Link
+                href={item.href}
+                className="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-ink-700 outline-none transition-colors data-[highlighted]:bg-ink-50 data-[highlighted]:text-ink-900"
+              >
+                <item.icon className="size-4 text-ink-400" aria-hidden />
+                {item.label}
+              </Link>
             </DropdownMenu.Item>
           ))}
 

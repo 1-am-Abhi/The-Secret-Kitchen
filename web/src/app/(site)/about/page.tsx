@@ -13,11 +13,11 @@ import { breadcrumbSchema, buildMetadata } from "@/lib/seo";
 export const metadata = buildMetadata({
   title: "About Us — Our Story, Kitchen & Chefs",
   description:
-    "The Secret Kitchen started in 2019 with eighteen tiffins a night from a Sector 62 home kitchen. Meet the chefs, see our FSSAI-licensed hygiene practices, and read why we grind our own masalas and never reuse frying oil.",
+    "The Secret Kitchen started in 2019 with eighteen tiffins a night from a home kitchen in Patna. Meet the chefs, see our FSSAI-licensed hygiene practices, and read why we grind our own masalas and never reuse frying oil.",
   path: "/about",
   keywords: [
     "about The Secret Kitchen",
-    "pure veg cloud kitchen Noida",
+    "pure veg cloud kitchen Patna",
     "FSSAI licensed kitchen",
     "hygienic tiffin service",
     "Meenakshi Rawat chef",

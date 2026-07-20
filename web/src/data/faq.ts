@@ -58,7 +58,7 @@ export const faqs: FaqItem[] = [
     category: "delivery",
     question: "Which areas do you deliver to?",
     answer:
-      "We currently serve Noida Sectors 58 to 63, Sector 71, Noida Extension, Indirapuram, Vaishali and Vasundhara. Enter your pincode on the home page to confirm coverage — we are adding new sectors every quarter.",
+      "We deliver across Patna. Enter your pincode on the home page to confirm coverage for your address.",
   },
   {
     id: "faq-07",
